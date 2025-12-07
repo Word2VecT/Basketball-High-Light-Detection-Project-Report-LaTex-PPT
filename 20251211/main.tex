@@ -1,0 +1,187 @@
+%%=======================================================================
+% !Mode:: "TeX:UTF-8"
+% !TEX program  = XeLaTeX
+%%=======================================================================
+% 模板名称：thubeamer
+% 模板版本：V1.2
+% 模板作者：杨敬轩（Jingxuan Yang）
+% 联系作者：yangjx20@mails.tsinghua.edu.cn & yanglatex2e@gmail.com
+% 模板适用：清华大学风格 Beamer 模板
+% 模板编译：手动编译方法参看 README.md 或 thubeamer.pdf
+%          编译 beamer 之前必须编译说明文档：make doc 或双击 makedoc.bat
+%          编译说明文档同时分离出四个样式文件 *thubeamer.sty
+%          GNU make 工具：make beamer
+%          Windows 批处理脚本：双击 makebeamer.bat 自动编译 beamer
+%          更多编译细节详见说明文档：thubeamer.pdf
+% 更新时间：2023/11/27
+% 模板帮助：请**务必务必务必**阅读 thubeamer.pdf 说明文档，文档查看方法：
+%          下载模板文件夹里就有，如果是从 CTAN 上安装更新本模板，则通过
+%          cmd 命令行：texdoc thubeamer 查看文档
+%          推荐前往模板的 GitHub 仓库获取最新文件，地址：
+%          https://github.com/YangLaTeX/thubeamer
+%%=======================================================================
+
+% 设置文档类别为 <beamer>
+% \documentclass[aspectratio=169]{beamer} % 设置长宽比为 16:9
+\documentclass{ctexbeamer}
+
+% 使用 <thubeamer> 主题
+% 模板选项如下
+% (a.1) smoothbars: 页面顶端单行显示目录，默认选项
+\usetheme[sectiontoc]{thubeamer}
+
+
+% (a.2) sidebar: 页面左侧分栏显示目录
+% \usetheme[sidebar]{thubeamer}
+
+% (b) sectiontoc: 在每节（section）前显示目录，并高亮显示当前节，默认不显示
+
+% (c) subsectiontoc: 在每小节（subsection）前显示目录，并高亮显示当前节和当前小节，默认不显示
+
+% (d) en: 仅使用英文来制作 beamer，应用此选项后，汉字将全部无法编译
+
+% 图片存放路径
+
+\graphicspath{{figures/}}
+
+\include{macros}
+
+% 封面信息，方括号内容是显示在左侧边栏的内容（当选择 sidebar 主题时有效）
+\title[篮球高光检测]{篮球高光检测项目\\[2mm] 汇报}
+\author[唐梓楠]{牛衍昌\\鲁继元\\唐梓楠\\[5mm] 导师：黄必清教授}
+\institute[清华大学]{\small 清华大学}
+\date{\small \vskip -10pt \today}
+
+% 开始写文章
+\begin{document}
+
+% 标题页
+\begin{frame}
+  \maketitle
+\end{frame}
+
+% 目录页
+\section*{目录}
+\frame{
+  \frametitle{\secname}
+  \tableofcontents[hideallsubsections]
+}
+
+\section{Yolo12x 训练}
+
+\begin{frame}{SportsMOT 数据集}
+
+  \begin{block}{ICCV 2023}
+    \textbf{SportsMOT: A Large Multi-Object Tracking Dataset in Multiple Sports Scenes}~\cite{Cui_2023_ICCV}
+  \end{block}
+
+  专业比赛运动场景的多目标追踪数据集，包括\textbf{篮球、排球、足球}。
+
+  包含 \textbf{240 个三个类别的片段}，均从 \textbf{YouTube} 上的\textbf{奥运会、NCAA 和 NBA} 中收集。仅下载\textbf{分辨率 720P}、\textbf{帧率 25 FPS} 且为\textbf{官方录制}的搜索结果。所有视频被手动剪辑为\textbf{平均 485 帧}的片段，片段内无镜头切换。
+
+  足球比赛提供户外场景，其余为室内场景。比赛场地的视角各不相同，如 NBA 观众密集的侧面视角、排球发球区视角、足球空中俯视视角等。
+\end{frame}
+
+\begin{frame}{SportsMOT 数据集 Statstics}
+  \begin{table}[h]
+    \centering
+    \resizebox{\linewidth}{!}{
+    \begin{tabular}{lccccc}
+      \toprule
+      Category (avg.) & \#frames & \#tracks & track gap len & track length & \#bboxes per frame \\
+      \midrule
+      篮球 & 845.4 & 10 & 68.7 & 767.9 & 9.1 \\
+      排球 & 360.4 & 12 & 38.2 & 335.9 & 11.2 \\
+      足球 & 673.9 & 20.5 & 116.1 & 422.1 & 12.8 \\
+      \bottomrule
+    \end{tabular}
+    }
+  \end{table}
+
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{figure}[t]
+        \centering
+        \includegraphics[width=0.8\linewidth]{speed.png}
+        \caption{速度分布（高斯概率密度函数）}
+      \end{figure}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{itemize}
+        \item \textbf{track}: 每个视频的轨迹数量
+        \item \textbf{tracklen}: 每个视频的平均长度/帧数
+        \item \textbf{speed}: 视频中运动员的平均速度
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{SportsMOT 数据集 Cases}
+  \begin{columns}
+    \begin{column}{0.33\textwidth}
+      \begin{figure}[htbp]
+        \centering
+        \centering
+        \includegraphics[width=\linewidth]{Basketball.png}
+        \begin{center} \scriptsize 篮球（NBA） \end{center}
+      \end{figure}
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=\linewidth]{Volleyball.png}
+        \begin{center} \scriptsize 排球（2012 伦敦奥运会） \end{center}
+      \end{figure}
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=\linewidth]{Football.png}
+        \begin{center} \scriptsize 足球（英格兰足总杯） \end{center}
+      \end{figure}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Yolo12x 训练情况}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{itemize}
+        \item 先在整个数据集上训练
+        \item 考虑到足球、排球与篮球场景差异较大，后尝试单独在篮球上训练
+        \item 效果都变差
+      \end{itemize}
+      \textbf{可能的原因}：
+      \begin{itemize}
+        \item Yolo12x 本身足够强
+        \item SportsMOT 为 720p，测试数据为 1080p
+        \item SportsMOT 为专业球场，测试数据为野球场
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\linewidth]{train.png}
+        \caption{Yolo12x 训练前后对比}
+      \end{figure}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\section{畸变校正}
+
+\section{连续性优化}
+
+\begin{frame}[allowframebreaks]{参考文献}
+  \bibliographystyle{thubeamer}
+  \bibliography{reference}
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    {\Huge\calligra Thanks for your attention!}
+  \end{center}
+\end{frame}
+
+% 结束文档撰写
+\end{document}

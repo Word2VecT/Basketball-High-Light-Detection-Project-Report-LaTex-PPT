@@ -1,0 +1,366 @@
+%%=======================================================================
+% !Mode:: "TeX:UTF-8"
+% !TEX program  = XeLaTeX
+%%=======================================================================
+% 模板名称：thubeamer
+% 模板版本：V1.2
+% 模板作者：杨敬轩（Jingxuan Yang）
+% 联系作者：yangjx20@mails.tsinghua.edu.cn & yanglatex2e@gmail.com
+% 模板适用：清华大学风格 Beamer 模板
+% 模板编译：手动编译方法参看 README.md 或 thubeamer.pdf
+%          编译 beamer 之前必须编译说明文档：make doc 或双击 makedoc.bat
+%          编译说明文档同时分离出四个样式文件 *thubeamer.sty
+%          GNU make 工具：make beamer
+%          Windows 批处理脚本：双击 makebeamer.bat 自动编译 beamer
+%          更多编译细节详见说明文档：thubeamer.pdf
+% 更新时间：2023/11/27
+% 模板帮助：请**务必务必务必**阅读 thubeamer.pdf 说明文档，文档查看方法：
+%          下载模板文件夹里就有，如果是从 CTAN 上安装更新本模板，则通过
+%          cmd 命令行：texdoc thubeamer 查看文档
+%          推荐前往模板的 GitHub 仓库获取最新文件，地址：
+%          https://github.com/YangLaTeX/thubeamer
+%%=======================================================================
+
+% 设置文档类别为 <beamer>
+% \documentclass[aspectratio=169]{beamer} % 设置长宽比为 16:9
+\documentclass{ctexbeamer}
+
+% 使用 <thubeamer> 主题
+% 模板选项如下
+% (a.1) smoothbars: 页面顶端单行显示目录，默认选项
+\usetheme[sectiontoc]{thubeamer}
+
+
+% (a.2) sidebar: 页面左侧分栏显示目录
+% \usetheme[sidebar]{thubeamer}
+
+% (b) sectiontoc: 在每节（section）前显示目录，并高亮显示当前节，默认不显示
+
+% (c) subsectiontoc: 在每小节（subsection）前显示目录，并高亮显示当前节和当前小节，默认不显示
+
+% (d) en: 仅使用英文来制作 beamer，应用此选项后，汉字将全部无法编译
+
+% 图片存放路径
+
+\graphicspath{{figures/}}
+
+\include{macros}
+
+% 封面信息，方括号内容是显示在左侧边栏的内容（当选择 sidebar 主题时有效）
+\title[报告标题]{篮球高光检测\\[2mm] Paper Reading}
+\author[唐梓楠]{学生：唐梓楠\\[5mm] 导师：黄必清教授}
+\institute[北京邮电大学]{\small  北京邮电大学, 清华大学}
+\date{\small \vskip -10pt \today}
+
+% 开始写文章
+\begin{document}
+
+% 标题页
+\begin{frame}
+  \maketitle
+\end{frame}
+
+% 目录页
+\section*{目录}
+\frame{
+  \frametitle{\secname}
+  \tableofcontents[hideallsubsections]
+}
+
+\section[DHMDL]{DHMDL: Dynamically Hashed Multimodal Deep Learning Framework for Racket Video Summarization Using Audio and Visual Markers}
+
+\subsection{Motivation}
+
+\begin{frame}{Motivation}
+  \begin{block}{Applied Artificial Intelligence}
+    \textbf{DHMDL: Dynamically Hashed Multimodal Deep Learning Framework for Racket Video Summarization Using Audio and Visual Markers}~\cite{priyankaDHMDLDynamicallyHashed2025}
+  \end{block}
+
+  \begin{itemize}
+    \item 体育赛事视频在社交媒体平台广泛传播，用户对自动生成赛事精彩集锦需求强烈。但现有研究多聚焦\textbf{足球、板球}等运动，对\textbf{网球}等球拍类运动视频摘要关注不足。
+    \item 人工剪辑赛事精彩瞬间耗时费力；现有视频摘要技术多依赖单一视觉模态，且缺乏高效数据结构与同步并行处理机制，难以处理长达数小时的赛事视频。
+    \item 生成的赛事集锦可用于社交媒体短视频、精彩片段推送等场景，提升用户参与度与平台收益，还能促进体育联盟、社交媒体平台与内容创作者的合作。
+  \end{itemize}
+\end{frame}
+
+\subsection{Methodology}
+
+\begin{frame}{Methodology}
+  框架分为\textbf{预处理}、\textbf{多模态特征提取与兴奋度评分}、\textbf{加权融合}、\textbf{动态哈希排序}、\textbf{亮点提取}五个模块：
+  \begin{enumerate}
+    \item 输入完整运动视频，预处理阶段将视频分割为 6 秒音频块和 1 帧 / 秒的视频帧。
+    \item 并行提取\textbf{音频}（观众欢呼、解说员兴奋度）与\textbf{视觉}（运动员表情）标记的兴奋度评分。
+    \item 加权融合多模态兴奋度评分，生成总兴奋度评分。
+    \item \textbf{基于归并排序的动态哈希表}对总评分分类排序，快速定位高兴奋度亮点片段。
+    \item 根据用户需求的摘要时长，提取并生成最终视频摘要。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{所提系统的详细系统结构图}
+  \begin{figure}
+    \includegraphics[width=0.9\linewidth]{DHMDL_pipeline.png}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{音频处理}
+  \begin{itemize}
+    \item \textbf{观众欢呼声}：\begin{itemize}
+      \item 转换音频为\textbf{梅尔频谱图}，提取\textbf{梅尔频率倒谱系数（MFCC）}\begin{equation}
+        M(f) = 1125 \ln \left( 1 + \frac{f}{700} \right)
+      \end{equation}
+      \item \textbf{自定义 CNN 模型}（3 层卷积 + 池化 + 全连接层）分类 “欢呼 / 无欢呼”，输出 0-1 评分
+    \end{itemize}
+    \item \textbf{解说员兴奋度}：\begin{itemize}
+      \item \textbf{音频处理}：分离前景（解说员声音）与背景音频，\textbf{自定义 CNN} 分类 “无声音 / 轻声 / 中等兴奋 / 高声兴奋”（4 类）
+      \item \textbf{文本处理}：语音转文字提取解说文本，\textbf{LSTM 模型}识别 “兴奋词”（如 “精彩回击”“关键得分”），输出 0-1 评分
+      \item 融合音频与文本评分，取平均值
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{CNN 架构}
+  \begin{figure}
+    \includegraphics[width=\linewidth]{DHMDL_audio.png}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{视频处理}
+    \textbf{运动员表情}：\begin{itemize}
+      \item \textbf{多任务级联卷积网络（MTCNN）}检测含运动员面部的视频帧：\begin{enumerate}
+        \item \textbf{P-Net（Proposal Network）}：快速生成面部候选框，输出含面部概率（0-1）、候选框坐标
+        \item \textbf{R-Net（Refine Network）}：优化候选框 + 过滤误检，输出修正后的候选框、面部概率、5 个面部关键点（双眼、鼻尖、嘴角）
+        \item \textbf{O-Net（Output Network）}：精准定位 + 输出最终结果，输出最终面部框、高置信度面部概率、5 个关键点坐标
+      \end{enumerate}
+      \item \textbf{提取特征}：手工特征（\textbf{HOG 梯度}方向捕捉形状与边缘、\textbf{LBP 纹理}捕捉局部纹理）+\textbf{3 种尺度 CNN 特征}（$110 \times 110$、$90 \times 90$、$64 \times 64$ 输入）
+      \item \textbf{SVM} 分类表情为 “开心 / 悲伤 / 中性 / 其他”，“开心”（高兴奋）与 “悲伤”（低兴奋）对应 0-1 评分
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{SVM 分类器架构}
+  \begin{figure}
+    \includegraphics[width=0.9\linewidth]{DHMDL_video.png}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{加权融合}
+  \begin{equation}
+    F(x)=\sum_{n=1}^{N} w_{n} E_{n}(x)
+  \end{equation}
+  其中 $w_{n}$ 为各模态权重（经自监督学习优化：观众欢呼 0.3、解说员语气 0.25、解说文本 0.15、运动员表情 0.3），$E_{n}(x)$ 为各模态兴奋度评分。
+  
+  \begin{block}{优化检索}
+    利用\textbf{动态哈希表 + 归并排序}快速定位满足剪辑时长要求的高兴奋度片段。
+  \end{block}
+\end{frame}
+
+\subsection{Datasets}
+
+\begin{frame}{Datasets}
+  \begin{itemize}
+    \item \textbf{主数据集}：2019 年\textbf{美网和温网}完整比赛视频（时长 2 小时以上），分割为 6s 音频块（共 1619 个）和视频帧（共 43200 帧），80\% 用于训练，20\% 用于测试。
+    \item \textbf{辅助数据集}：
+      \begin{itemize}
+        \item \textbf{音频分类}：标注 “欢呼 / 无欢呼” 样本 581 个、标注 “解说员兴奋度” 样本 1619 个。
+        \item \textbf{表情识别}：CK + 面部表情数据集（593 张图像，8 类表情：中性、开心、悲伤等），用于训练运动员表情分类模型。
+        \item \textbf{对比基准}：VSUMM、SumMe、TVSum 等通用视频摘要数据集，以及 YouTube 上的网球比赛人工标注亮点视频。
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\section[Event Camera]{Real-Time Ball Tracking and Action Classification using an Event Camera}
+
+\subsection{Motivation}
+
+\begin{frame}{Motivation}
+  \begin{block}{ACM Multimedia 2025 MMSports Workshop}
+    \textbf{Real-Time Ball Tracking and Action Classification using an Event Camera}~\cite{yamaneRealTimeBallTracking2025}
+  \end{block}
+
+  \begin{itemize}
+    \item 体育赛事中回放片段对提升观众参与度至关重要，但传统回放筛选与编辑依赖人工，给现场工作人员带来沉重操作负担。
+    \item 现有计算机视觉方法多缺乏实时性，无法满足自动回放生成需求，且多数方法针对特定运动、依赖辅助数据（如解说音频、过渡标识），实用性受限。
+    \item 针对\textbf{排球赛事}，提出一种基于事件相机的实时球类追踪与动作分类方法，解决自动回放生成的技术缺口，无需机器学习技术，利用事件数据流实现轻量化计算，最终识别适合回放的关键时刻。
+  \end{itemize}
+\end{frame}
+
+\subsection{Methodology}
+
+\begin{frame}{数据预处理}
+  \begin{itemize}
+    \item \textbf{数据格式转换}：\begin{itemize}
+      \item \textbf{事件相机}输出 $(x, y, t, p)$ 形式数据（空间坐标、时间戳、极性），将 $\Delta t$ 时间内生成的事件聚合为单个事件帧；
+      \item 若球预期区域的事件数低于阈值 $e_{\text{min}}$（实验设为 100），则合并下一帧事件，使帧时长变为 $2 \Delta t$，解决球减速（如接球后轨迹顶点）时事件少、难检测的问题。
+    \end{itemize}
+    \item \textbf{事件聚类生成}：\textit{通过形态学操作将离散的同物体事件分组，形成 “事件簇（EC）”}，排除过小的事件簇（视为相机噪声）。
+  \end{itemize}
+  \begin{block}{事件相机优点}
+    异步触发式视觉传感器，仅在像素级检测到 “亮度变化” 时才生成数据，而非周期性采集完整图像，这种特性使其在高速运动、高动态范围场景中具备传统相机难以比拟的优势。
+  \end{block}
+\end{frame}
+
+\begin{frame}{初始位置确定}
+  监测预定义发球区，若连续 3 帧检测到重叠事件簇，其中心即为球的初始位置
+  \begin{figure}
+    \includegraphics[width=0.8\linewidth]{ball_start.png}
+    \caption{左侧和右侧预先定义的发球区（以绿色标注，本示例中发球从左侧开始）。}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{实时追踪逻辑}
+  \begin{enumerate}
+    \item 预设球半径 $r$（实验设为 10），以前一帧事件簇中心 $(c_x, c_y)$ 定义球区域，当前帧与该区域空间相交的事件簇视为球（不使用 IoU，因球与球员接触时事件簇易融合，IoU 得分低）。
+    \item \textbf{事件簇融合处理}：若球与球员事件簇融合，通过事件密度提取球区域（球区域事件密度更高）；若球沿抛物线运动（接球、传球时），事件数低于 $e_{\text{min}}$ 则合并下一帧事件。
+    \item \textbf{未检测应对}：连续 3 帧未检测时，以前一帧球位置为中心，用预设大小窗口 $w$（实验设为 20，即 $2r$）搜索最高密度事件簇；连续 10 帧未检测则扩展至全图搜索，通过密度上限 $d_{\text{max}}$（3.0）和面积下限 $S_{\text{min}}$（200）避免误检（如观众区域、背景噪声）。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}
+  \begin{figure}
+    \includegraphics[width=\linewidth]{ball_3.png}
+    \caption{扣球动作中球与球员的事件簇出现融合的场景示例。绿色方框代表事件簇发生融合的区域。（b）图显示，即便事件簇发生融合，球所在区域的事件数量仍高于其他区域。}
+  \end{figure}
+\end{frame}
+
+\subsection{Results}
+
+\begin{frame}{判断方法}
+  无需机器学习模型，通过轻量化的轨迹分析与规则判断实现。
+  \begin{itemize}
+    \item 识别动作起始（轨迹突变触发）
+    \item 基于轨迹特征区分动作类 \begin{itemize}
+      \item 优先判定 “扣球”：$x$ 向位移 > $y$ 向位移
+      \item 区分 “传球” 与 “接球”：依赖后续动作
+      \item 直接判定 “发球”：回合起始 + 高轨迹
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Results}
+  \textbf{Datasets}：自主采集工业排球联赛事件数据（Prophesee Gen4 相机，$1280 \times 720$ 分辨率），同步采集 120fps RGB 数据（GoPro）用于对比；数据集片段从发球开始到球落地得分，人工标注动作真值。
+
+  \begin{table}[h]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lccc}
+      \toprule
+      action & accuracy & transition error (s) & analysis \\
+      \midrule
+      发球 & 0.99 & - & 回合起始、轨迹高，无遮挡 \\
+      接球 & 0.67 & 0.033 & 多在地面附近，球与球员重叠多，检测难 \\
+      传球 & 0.82 & 0.022 & 高空执行，遮挡少，但速度慢易与球员混淆 \\
+      扣球 & 0.97 & 0.178 & 速度快、轨迹特征明显，过渡误差高因球员与球接触时间长 \\
+      \bottomrule
+    \end{tabular}%
+    }
+  \end{table}
+\end{frame}
+
+\section[Player Tracking and Re-Id]{Enhancing Soccer Player Tracking and Re-Identification with Dual Visual Embeddings and Tracklet Association}
+
+\subsection{Pipeline}
+
+\begin{frame}{Pipeline}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \begin{block}{ACM Multimedia 2025 MMSports Workshop}
+      \textbf{Enhancing Soccer Player Tracking and Re-Identification with Dual Visual Embeddings and Tracklet Association}~\cite{nakamuraEnhancingSoccerPlayer2025}
+    \end{block}
+    输入视频 $\to$ RF-DETR 检测 $\to$ CLIP-ReID+PRT-ReID 特征提取 $\to$ BoT-SORT 局部关联 $\to$ GTA 全局轨迹合并 $\to$ 插值 + 平滑后处理 $\to$ 输出最终球员轨迹
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[height=0.8\textheight]{pipeline.png}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\subsection{Methodology}
+
+\begin{frame}{目标检测：RF-DETR}
+    \begin{itemize}
+      \item \textbf{优势}：基于 Transformer 架构，配备可变形注意力与 DINOv2 骨干网络，捕捉全局上下文信息，优于依赖局部区域特征的传统 CNN 检测器（YOLO、Faster R-CNN）。
+      \item \textbf{训练细节}：用 COCO 预训练权重初始化，在 SoccerTrack 训练集 1/10 随机采样帧上微调；为平衡泛化性与针对性，仅在小规模随机子集上微调，避免过拟合某一场地场景。
+      \item \textbf{作用}：高精度检测小尺度球员，即使球员仅占数十像素仍保持高召回率，通过置信阈值抑制假阳性。
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{多维度特征提取：CLIP-ReID + PRT-ReID}
+    \begin{itemize}
+      \item \textbf{CLIP-ReID}：直接采用 CLIP 视觉编码器，生成语义丰富、语言关联的外观嵌入，抗光照变化与姿态变异。
+      \item \textbf{PRT-ReID}：基于部件的多任务模型，联合学习球员角色与球队属性，输出细粒度部件级与全局外观特征。
+      \item \textbf{设计初衷}：融合 CLIP 的广谱语义理解与 PRT-ReID 的细粒度区分能力，提升后续关联阶段的身份一致性。
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{局部帧间关联：BoT-SORT}
+    \begin{itemize}
+      \item \textbf{改进点}：在经典 SORT（仅运动预测）、DeepSORT（运动预测 + CNN-ReID）基础上，集成卡尔曼滤波运动预测、CLIP-ReID 嵌入与相机运动补偿（CMC）。
+      \item \textbf{作用}：校正动态相机导致的帧间位置偏移，实现实时、稳健的帧间轨迹链接，抵抗短期遮挡与虚假检测，减少身份切换。
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{全局轨迹段合并：GTA（Global Tracklet Association）}
+    \begin{itemize}
+      \item \textbf{解决问题}：弥补 BoT-SORT 在长期遮挡或检测缺失下的轨迹碎片化问题。
+      \item \textbf{流程}：先通过类 DBSCAN 方法聚类轨迹段，再结合 PRT-ReID 外观距离（部件级线索）与检测框空间距离，加权合并聚类结果。
+      \item \textbf{效果}：在挑战数据集上使轨迹段数量减少约一半，提升跟踪性能指标。
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{后处理：补全与平滑}
+    \begin{itemize}
+      \item 异常值处理：计算轨迹段瞬时速度，标记偏离近期平均值的异常值。
+      \item 插值补全：对容忍范围内的轨迹间隙，线性插值补全缺失的 bounding box；过滤过短轨迹段。
+      \item 平滑优化：对每个轨迹段应用移动平均滤波，消除位置与尺寸的突变，生成贴合球员真实运动的流畅轨迹。
+    \end{itemize}
+\end{frame}
+
+\subsection{Results}
+
+\begin{frame}{Results}
+  \begin{table}[htbp]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lcc}
+      \toprule
+      指标 & 数值 & 指标含义 \\
+      \midrule
+      HOTA & 0.55 & 综合检测与关联精度的核心指标 \\
+      LocA & 0.82 & 定位精度，反映 RF-DETR 对小尺度球员的稳定检测能力 \\
+      AssA & 0.43 & 关联精度，体现 BoT-SORT 与 GTA 在遮挡后维持身份一致性的效果 \\
+      \bottomrule
+    \end{tabular}%
+    }
+  \end{table}
+  \begin{table}[htbp]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lcccccccc}
+      \toprule
+      Pipeline & Detection & Feature Extraction & Tracking & GTA & Post Processing & HOTA & IDSW & IDF1 \\
+      \midrule
+      Proposed (Fusion+GTA+Interp) & RF-DETR & PRT-ReID+CLIP-ReID & BoT-SORT & \checkmark & \checkmark & 51.486 & 446 & 59.041 \\
+      \midrule
+      RF-DETR@560 (Fusion+GTA+Interp) & RF-DETR & PRT-ReID+CLIP-ReID & BoT-SORT & \checkmark & \checkmark & 28.867 & 1524 & 33.641 \\
+      CLIP-Only (CLIP+GTA+Interp) & RF-DETR & CLIP-ReID & BoT-SORT & \checkmark & \checkmark & 52.534 & 414 & 60.925 \\
+      PRT-Only (PRT+GTA+Interp) & RF-DETR & PRT-ReID & BoT-SORT & \checkmark & \checkmark & 48.525 & 467 & 56.240 \\
+      No-GTA (Fusion+Interp) & RF-DETR & PRT-ReID+CLIP-ReID & BoT-SORT & & \checkmark & 50.581 & 294 & 55.884 \\
+      No-Interp (Fusion+GTA) & RF-DETR & PRT-ReID+CLIP-ReID & BoT-SORT & \checkmark & & 51.100 & 729 & 58.750 \\
+      \bottomrule
+    \end{tabular}%
+    }
+  \end{table}
+\end{frame}
+
+\begin{frame}[allowframebreaks]{参考文献}
+  \bibliographystyle{thubeamer}
+  \bibliography{reference}
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    {\Huge\calligra Thanks for your attention!}
+  \end{center}
+\end{frame}
+
+% 结束文档撰写
+\end{document}
