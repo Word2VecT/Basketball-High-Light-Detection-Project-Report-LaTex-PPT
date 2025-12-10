@@ -1,34 +1,22 @@
-%%=======================================================================
-% !Mode:: "TeX:UTF-8"
-% !TEX program  = XeLaTeX
-%%=======================================================================
-% 模板名称：thubeamer
-% 模板版本：V1.2
-% 模板作者：杨敬轩（Jingxuan Yang）
-% 联系作者：yangjx20@mails.tsinghua.edu.cn & yanglatex2e@gmail.com
-% 模板适用：清华大学风格 Beamer 模板
-% 模板编译：手动编译方法参看 README.md 或 thubeamer.pdf
-%          编译 beamer 之前必须编译说明文档：make doc 或双击 makedoc.bat
-%          编译说明文档同时分离出四个样式文件 *thubeamer.sty
-%          GNU make 工具：make beamer
-%          Windows 批处理脚本：双击 makebeamer.bat 自动编译 beamer
-%          更多编译细节详见说明文档：thubeamer.pdf
-% 更新时间：2023/11/27
-% 模板帮助：请**务必务必务必**阅读 thubeamer.pdf 说明文档，文档查看方法：
-%          下载模板文件夹里就有，如果是从 CTAN 上安装更新本模板，则通过
-%          cmd 命令行：texdoc thubeamer 查看文档
-%          推荐前往模板的 GitHub 仓库获取最新文件，地址：
-%          https://github.com/YangLaTeX/thubeamer
-%%=======================================================================
-
-% 设置文档类别为 <beamer>
-% \documentclass[aspectratio=169]{beamer} % 设置长宽比为 16:9
 \documentclass{ctexbeamer}
 
 % 使用 <thubeamer> 主题
 % 模板选项如下
 % (a.1) smoothbars: 页面顶端单行显示目录，默认选项
 \usetheme[sectiontoc]{thubeamer}
+
+% 使用 listings 替代 minted（无需额外安装）
+\usepackage{listings}
+\lstnewenvironment{textcode}{
+  \lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    frame=single,
+    numbersep=2pt,
+    xleftmargin=0.5em,
+    framesep=1mm
+  }
+}{}
 
 
 % (a.2) sidebar: 页面左侧分栏显示目录
@@ -146,6 +134,26 @@
 \begin{frame}{Yolo12x 训练情况}
   \begin{columns}
     \begin{column}{0.5\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\linewidth]{yolo_train_result/results.png}
+        \caption{训练 Loss 曲线}
+      \end{figure}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{figure}
+        \centering
+        \includegraphics[width=\linewidth]{yolo_train_result/val_batch0_labels.jpg}
+        \includegraphics[width=\linewidth]{yolo_train_result/val_batch0_pred.jpg}
+        \caption{验证集对比}
+      \end{figure}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Yolo12x 训练后测试情况}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
       \begin{itemize}
         \item 先在整个数据集上训练
         \item 考虑到足球、排球与篮球场景差异较大，后尝试单独在篮球上训练
@@ -154,23 +162,133 @@
       \textbf{可能的原因}：
       \begin{itemize}
         \item Yolo12x 本身足够强
-        \item SportsMOT 为 720p，测试数据为 1080p
+        \item SportsMOT 为 720p 25fps，测试数据为 1080p 30fps
         \item SportsMOT 为专业球场，测试数据为野球场
       \end{itemize}
     \end{column}
     \begin{column}{0.5\textwidth}
       \begin{figure}
         \centering
-        \includegraphics[width=\linewidth]{train.png}
+        \includegraphics[width=\linewidth]{yolo_train_result/frame_comparison.png}
         \caption{Yolo12x 训练前后对比}
       \end{figure}
     \end{column}
   \end{columns}
 \end{frame}
 
+\begin{frame}{Yolo12x 训练后测试情况}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{yolo_train_result/confidence_trend.png}
+  \end{figure}
+\end{frame}
+
 \section{畸变校正}
 
-\section{连续性优化}
+\begin{frame}[fragile]{A1 A2 相机内外参}
+  \begin{block}{A1 内参}
+    \begin{textcode}
+# 相机内参矩阵格式: [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+camera_matrix = 
+[[4144.1, 0, 1656.5],
+[0, 4165.2, 918.5415],
+[0, 0, 1]]
+
+# 畸变系数
+# 格式: [k1, k2, p1, p2, k3] (径向畸变+切向畸变)
+dist_coeffs = [-1.3696, 4.0575, 0, 0, -6.7578]
+    \end{textcode}
+  \end{block}
+\end{frame}
+
+\begin{frame}[fragile]{A1 A2 相机内外参}
+  \begin{block}{外参矩阵}
+    \begin{textcode}
+#A2 为主相机
+#平移矩阵
+[20514, 3244.5, 14648]
+
+#旋转矩阵
+[[0.4853, -0.3123, -0.8166]
+[0.0900,  0.9469, -0.3087]
+[0.8697, 0.0763, 0.4877]]
+
+#外参矩阵
+[[0.4853, -0.3123, -0.8166, 20514]
+[0.0900,  0.9469, -0.3087, 3244.5]
+[0.8697, 0.0763, 0.4877,14648]
+[0, 0, 0,1]]
+    \end{textcode}
+  \end{block}
+\end{frame}
+
+\begin{frame}{去畸变前后效果对比}
+  对于人脸识别与人员追踪有一定效果
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{矫正对比/face_similarity_comparison_plot.png}
+    \caption{人脸识别前后对比}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{去畸变前后效果对比}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{矫正对比/person_confidence_comparison.png}
+    \caption{人员追踪前后对比}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{去畸变前后效果对比}
+  对于球体追踪没啥效果，可能是由于目前本身追踪效果较差
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{矫正对比/ball_confidence_comparison.png}
+    \caption{球体追踪前后对比}
+  \end{figure}
+\end{frame}
+
+\section{其他脸部识别追踪模型}
+
+\begin{frame}{尝试较新的模型}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+  [2024-05-04] \textbf{InsightFace: 2D and 3D Face Analysis Project}~\footnote{https://github.com/deepinsight/insightface}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{face_detection/InsightFace.png}
+  \end{figure}
+  \end{column}
+  \begin{column}{0.5\textwidth}
+  [2024-07-02] \textbf{InspireFace}~\footnote{https://github.com/HyperInspire/InspireFace}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{face_detection/InspireFace.png}
+  \end{figure}
+  \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{face_detection/inspireface普遍偏低，但区分度差不多.jpg}
+    \includegraphics[width=\linewidth]{face_detection/其他模型对比_inspireface.png}
+    \caption{InspireFace 相似度低一些，但区分度差不多}
+  \end{figure}
+\end{frame}
+
+\section{TODO}
+
+\begin{frame}{TODO}
+  单视角人物追踪、利用人脸 ReID 效果基本可行
+  \begin{itemize}
+    \item 统一多视角
+    \item 利用多视角提升球追踪效果
+    \item 利用多视角、根据人的位置连续性、不突变特性优化提升人物追踪，人脸检索效果
+    \item 二维重建
+  \end{itemize}
+\end{frame}
 
 \begin{frame}[allowframebreaks]{参考文献}
   \bibliographystyle{thubeamer}
