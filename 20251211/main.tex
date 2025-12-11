@@ -5,7 +5,7 @@
 % (a.1) smoothbars: 页面顶端单行显示目录，默认选项
 \usetheme[sectiontoc]{thubeamer}
 
-% 使用 listings 替代 minted（无需额外安装）
+\usepackage{media9}
 \usepackage{listings}
 \lstnewenvironment{textcode}{
   \lstset{
@@ -253,14 +253,14 @@ dist_coeffs = [-1.3696, 4.0575, 0, 0, -6.7578]
 \begin{frame}{尝试较新的模型}
   \begin{columns}
     \begin{column}{0.5\textwidth}
-  [2024-05-04] \textbf{InsightFace: 2D and 3D Face Analysis Project}~\footnote{https://github.com/deepinsight/insightface}
+  [2024-05-04] \textbf{InsightFace: 2D and 3D Face Analysis Project}~\footnote{deepinsight/insightface}
   \begin{figure}
     \centering
-    \includegraphics[width=\linewidth]{face_detection/InsightFace.png}
+    \includegraphics[width=0.8\linewidth]{face_detection/InsightFace.png}
   \end{figure}
   \end{column}
   \begin{column}{0.5\textwidth}
-  [2024-07-02] \textbf{InspireFace}~\footnote{https://github.com/HyperInspire/InspireFace}
+  [2024-07-02] \textbf{InspireFace}~\footnote{HyperInspire/InspireFace}
   \begin{figure}
     \centering
     \includegraphics[width=\linewidth]{face_detection/InspireFace.png}
@@ -272,11 +272,33 @@ dist_coeffs = [-1.3696, 4.0575, 0, 0, -6.7578]
 \begin{frame}
   \begin{figure}
     \centering
-    \includegraphics[width=\linewidth]{face_detection/inspireface普遍偏低，但区分度差不多.jpg}
-    \includegraphics[width=\linewidth]{face_detection/其他模型对比_inspireface.png}
+    \includegraphics[width=0.8\linewidth]{face_detection/inspireface普遍偏低，但区分度差不多.jpg}
+    \includegraphics[width=0.8\linewidth]{face_detection/其他模型对比_inspireface.png}
     \caption{InspireFace 相似度低一些，但区分度差不多}
   \end{figure}
 \end{frame}
+
+\section{连续性优化}
+
+\begin{frame}{连续性优化}
+  主要利用
+  \begin{itemize}
+    \item 利用人脸作为媒介，ReID 统一多个片段
+    \item 利用人的位移在时间和空间上的连续性，针对细小的片段无法用人脸 ReID 进行差值补全
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{只用人脸}
+  \centering
+  \includemedia[
+  width=0.9\linewidth,
+  height=0.7\linewidth,
+  activate=pageopen,
+  addresource=video/1/face_only.mp4,
+  flashvars={source=video/1/face_only.mp4}
+  ]{}{VPlayer.swf}
+\end{frame}
+
 
 \section{TODO}
 
