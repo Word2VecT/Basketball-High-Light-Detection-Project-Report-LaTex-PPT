@@ -1,0 +1,39 @@
+\begin{table}
+\setlength{\tabcolsep}{2pt}
+\centering
+\caption{\textbf{Impact of Different Depth Sources} on DexYCB. We report results using either DUSt3R-estimated~\cite{wang2024dust3r} or sensor-based depth for all methods. Sensor depth generally improves performance across the board, underscoring the importance of high-fidelity depth. Notably, our multi-view tracker benefits the most, indicating that our fused 3D point cloud representation effectively capitalizes on better depth quality.
+}
+\vspace{-0.3cm}
+\begin{tabular}{l cccc}
+                  \toprule
+                                    Method &   AJ\hspace{-0.01cm}\ua & \davg\hspace{-0.05cm}\ua &   OA\hspace{-0.03cm}\ua\hspace{0.03cm} &  \hspace{-0.1cm}MTE\hspace{-0.03cm}\da \\
+                  \midrule
+                \multicolumn{5}{r}{DexYCB~\cite{dexycb} (DUSt3R depth) } \\
+\midrule
+LocoTrack~\cite{cho2024local}                &    27.8  &    38.6  &    77.0  &    22.8  \\ 
+DELTA~\cite{ngo2024delta}                    &    36.8  &    51.6  &    61.0  &    18.3  \\ 
+CoTracker2~\cite{karaev2023cotracker}        &    28.8  &    40.5  &    76.2  &    20.8  \\ 
+CoTracker3~\cite{karaev24cotracker3}         &    29.4  &    40.3  &    78.6  &    22.0  \\ 
+SpaTracker~\cite{xiao2024spatialtracker}     &    58.3  &    72.0  &    80.2  &     5.9  \\ 
+SpaTrackerV2~\cite{xiao2025spatialtrackerv2} &    35.5  &    45.1  &    91.3  &     9.8  \\
+TAPIP3D~\cite{tapip3d}                       &    38.8  &    50.0  &    90.1  &     8.2  \\
+Triplane Baseline                            &    57.5  &    71.0  &    81.3  &     4.3  \\ 
+\rowcolor{cyan!16} MVTracker (ours)          & \B{71.6} & \B{80.6} & \B{91.3} &  \B{2.0} \\ 
+
+
+                  \toprule
+                 \multicolumn{5}{r}{DexYCB~\cite{dexycb} (sensor depth)} \\
+                  \toprule
+LocoTrack~\cite{cho2024local}                &    55.1  &    64.6  &    76.7  &    27.5  \\
+DELTA~\cite{ngo2024delta}                    &    54.6  &    67.8  &    72.6  &    42.6  \\
+CoTracker2~\cite{karaev2023cotracker}        &    56.4  &    67.4  &    76.4  &    26.4  \\
+CoTracker3~\cite{karaev24cotracker3}         &    57.3  &    68.5  &    76.7  &    23.4  \\
+SpaTracker~\cite{xiao2024spatialtracker}     &    60.9  &    75.0  &    82.5  &     4.0  \\
+SpaTrackerV2~\cite{xiao2025spatialtrackerv2} &    69.2  &    77.5  &    91.3  &     4.2  \\
+TAPIP3D~\cite{tapip3d}                       &    77.2  &    88.9  &    88.0  &     1.3  \\
+Triplane Baseline                            &    68.0  &    79.5  &    85.9  &     2.6  \\
+\rowcolor{cyan!16} MVTracker (ours)          & \B{82.7} & \B{91.0} & \B{91.6} &  \B{0.8} \\
+\bottomrule
+\end{tabular}
+\label{tab:dexycb-depth-types}
+\end{table}

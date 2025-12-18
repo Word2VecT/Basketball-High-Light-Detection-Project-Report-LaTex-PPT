@@ -1,0 +1,29 @@
+\begin{table}
+\setlength{\tabcolsep}{2pt}
+\centering
+\caption{
+    \textbf{Impact of Camera Setups.}
+    Evaluation of AJ under varied camera setups. For Panoptic Studio~\cite{koppula2024tapvid}, we select 4 out of the available 27 views as opposing views (setup A) or nearby views (setups B and C). For DexYCB~\cite{dexycb}, we form 4-view sets out of the available 8 views: (A) views 1--4, (B) views 3--6, (C) views 5--8.
+}
+\vspace{-0.3cm}
+\begin{tabular}{l ccc c ccc}
+\toprule
+  \multirow{2}{*}[-0.15em]{Method}
+& \multicolumn{3}{c}{PStudio~\cite{koppula2024tapvid}}
+& \xspace
+& \multicolumn{3}{c}{DexYCB~\cite{dexycb}}
+\\ \cmidrule(lr){2-4} \cmidrule(lr){6-8}
+                                             &       A  &       B  &       C  &&       A  &       B  &       C  \\ \hline
+Dynamic 3DGS~\cite{luiten2023dynamic}        &    66.5  &    50.8  &    56.6  &&    45.7  &      --  &      --  \\
+Shape of Motion~\cite{som2024}               &    72.6  &    64.3  &    66.8  &&    36.2  &      --  &      --  \\
+LocoTrack~\cite{cho2024local}                &    65.8  &    57.9  &    63.7  &&    27.8  &    40.9  &    42.9  \\
+DELTA~\cite{ngo2024delta}                    &    68.1  &    61.1  &    65.9  &&    36.5  &    43.3  &    47.6  \\
+CoTracker2~\cite{karaev2023cotracker}        &    69.5  &    62.3  &    66.4  &&    28.8  &    42.0  &    44.4  \\
+CoTracker3~\cite{karaev24cotracker3}         &    74.5  &    66.3  &    70.9  &&    29.4  &    43.8  &    46.3  \\
+SpaTracker~\cite{xiao2024spatialtracker}     &    61.5  &    54.8  &    57.8  &&    58.3  &    57.9  &    63.8  \\
+Triplane Baseline                            &    65.1  &    59.9  &    63.5  &&    57.5  &    62.0  &    66.3  \\
+\rowcolor{cyan!16} MVTracker (ours)          & \B{86.0} & \B{75.7} & \B{83.2} && \B{71.0} & \B{71.2} & \B{78.3} \\
+\bottomrule
+\end{tabular}
+\label{tab:ablate-camera-setups}
+\end{table}

@@ -1,0 +1,284 @@
+
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage[pagenumbers]{iccv} %
+
+\input{preamble}
+
+\definecolor{iccvblue}{rgb}{0.21,0.49,0.74}
+\usepackage[pagebackref,breaklinks,colorlinks,allcolors=iccvblue]{hyperref}
+
+\def\paperID{426} %
+\def\confName{ICCV}
+\def\confYear{2025}
+
+\title{Multi-View 3D Point Tracking}
+
+\author{
+    Frano Raji\v{c}$^{1}$ \quad
+    Haofei Xu$^{1}$ \quad
+    Marko Mihajlovic$^{1}$ \quad
+    Siyuan Li$^{1}$ \quad
+    Irem Demir$^{1}$ \\
+    Emircan Gündoğdu$^{1}$ \hfill
+    Lei Ke$^{2}$ \hfill
+    Sergey Prokudin$^{1,3}$ \hfill
+    Marc Pollefeys$^{1,4}$ \hfill
+    Siyu Tang$^{1}$
+\\[0.75ex]
+    \small
+    $^1$ETH Zürich \hfill
+    $^2$Carnegie Mellon University \hfill
+    $^3$Balgrist University Hospital \hfill
+    $^4$Microsoft \\
+}
+ 
+\begin{document}
+
+\twocolumn[{
+\renewcommand\twocolumn[1][]{#1}
+\maketitle
+\begin{center}
+    \vspace{-0.12cm}
+    \captionsetup{type=figure}
+    \includegraphics[width=\linewidth]{figures/teaser__july_25.optimized-prepress.pdf}
+    \vspace{-0.57cm}
+    \captionof{figure}{
+    We introduce \textbf{MVTracker}, the first \emph{data-driven multi-view 3D point tracker} for tracking arbitrary 3D points across multiple cameras. Our method fuses multi-view features into a unified 3D feature point cloud, within which it leverages kNN-based correlation to capture spatiotemporal relationships across views. A transformer then iteratively refines the point tracks, handling occlusions and adapting to varying camera setups without per-sequence optimization. This figure shows results on SelfCap~\cite{xu2024longvolcap_selfcap} using DUSt3R-based~\cite{wang2024dust3r} depth.
+    } 
+    \label{fig:teaser}
+\end{center}
+}]
+\maketitle
+
+\begin{abstract}
+We introduce the first data-driven multi-view 3D point tracker, designed to track arbitrary points in dynamic scenes using multiple camera views. Unlike existing monocular trackers, which struggle with depth ambiguities and occlusion, or prior multi-camera methods that require over 20 cameras and tedious per-sequence optimization, our feed-forward model directly predicts 3D correspondences using a practical number of cameras (\eg, four), enabling robust and accurate online tracking. Given known camera poses and either sensor-based or estimated multi-view depth, our tracker fuses multi-view features into a unified point cloud and applies k-nearest-neighbors correlation alongside a transformer-based update to reliably estimate long-range 3D correspondences, even under occlusion. We train on 5K synthetic multi-view Kubric sequences and evaluate on two real-world benchmarks---Panoptic Studio and DexYCB---achieving median trajectory errors of 3.1\,cm and 2.0\,cm, respectively. Our method generalizes well to diverse camera setups of 1--8 views with varying vantage points and video lengths of 24--150 frames. By releasing our tracker alongside training and evaluation datasets, we aim to set a new standard for multi-view 3D tracking research and provide a practical tool for real-world applications. Project page: \url{https://ethz-vlg.github.io/mvtracker}.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+Tracking arbitrary points in 3D~\cite{vedula1999three} is a fundamental problem in computer vision, with numerous applications in dynamic scene reconstruction~\cite{jin2024stereo4d}, robotics~\cite{fang2023rh20t}, and augmented reality~\cite{pan2023aria}. While remarkable progress has been made with the recent advancement of 2D point tracking methods~\cite{karaev24cotracker3,karaev2023cotracker,harley2022particle,doersch2023tapvid,doersch2023tapir,doersch2024bootstap,cho2024local,zheng2023point}, they remain inherently limited in modeling 3D-consistent motion due to the fundamental ambiguity of the 3D-to-2D projection process. Thus, high-quality 3D point tracking remains a challenging task.
+
+Scene flow approaches~\cite{vedula1999three,richardt2016dense,vogel20113d,teed2021raft} can estimate a dense 3D flow field for every 3D point, but they are usually limited to two consecutive video frames, whereas 3D point tracking operates on long sequences (\eg, tens or even hundreds of video frames). Recently, several methods~\cite{xiao2024spatialtracker,koppula2024tapvid,ngo2024delta} have been proposed to tackle the 3D point tracking task from monocular videos. However, their performance remains far from satisfactory for real-world applications that demand high quality and robustness, due to the difficulty of estimating 3D from single viewpoints in challenging scenarios such as occlusion and complex motion.
+
+To address these challenges, we adopt a multi-camera setup and develop the first feed-forward model that can efficiently and robustly predict long-range 3D point trajectories from multi-view videos. Unlike previous multi-camera methods~\cite{vedula1999three,luiten2023dynamic,zheng2025gstar} that require more than 20 cameras and tedious per-sequence optimization, our approach enables feed-forward 3D point tracking with a practical and flexible number of cameras, such as a set of four camera views with arbitrary viewpoints. Thus, our method strikes a promising balance between accuracy and practicality, making it particularly suitable for real-world applications.
+
+Key to our model is a dynamic fused 3D feature point cloud, constructed by combining the unprojected per-view depth maps, which not only effectively aggregates multi-view information to a global scene representation, but also facilitates reliable and efficient correspondence search with the k-nearest-neighbors (kNN) operation. This is different from the triplane representation used in the previous state-of-the-art method SpatialTracker~\cite{xiao2024spatialtracker}, which inevitably suffers from information loss during the triplane splatting process and is therefore less effective in processing varying numbers of input cameras. Moreover, our model performs reasonably well with different sources of depth input, whether from accurate depth sensors or noisy estimates from methods such as DUSt3R~\cite{wang2024dust3r} and VGGT~\cite{wang2025vggt}.
+
+Using the fused dynamic point cloud, we retrieve local neighbors for each tracked point using a kNN search and compute multi-scale correlation features that capture both appearance similarity and 3D offset information. A spatiotemporal transformer then iteratively refines each point's 3D position and appearance over a sliding temporal window. Finally, the outputs from overlapping windows are merged to produce globally consistent 3D point trajectories. 
+
+To train our model, we construct a synthetic multi-view dataset using Kubric~\cite{greff2022kubric} and simulate 5K sequences. We evaluate the model on two real-world datasets, DexYCB~\cite{dexycb} and Panoptic Studio~\cite{joo2015panoptic}, for which we construct 3D point trajectories by leveraging ground-truth object and hand pose estimation labels in DexYCB and merging existing monocular trajectory labels~\cite{koppula2024tapvid} in Panoptic Studio. We conduct extensive experiments on these multi-view video datasets, which suggest that our model outperforms baseline methods by a significant margin. Our model also performs well with different camera setups, different numbers of cameras, and different sources of depth maps, indicating the robustness of our proposed approach. We release our source code and models alongside the training and evaluation datasets to facilitate future research on multi-view 3D point tracking.
+
+\section{Related Work}
+\label{sec:related_work}
+
+\paragraph{Scene Flow.}
+Scene flow methods~\cite{vedula1999three,richardt2016dense,vogel20113d,teed2021raft} are usually designed to estimate the dense 3D motion between two consecutive video frames. Traditional methods~\cite{vedula1999three,richardt2016dense,vogel20113d} try to solve this task with an optimization framework, which is typically slow and requires many cameras (\eg, 31 in ~\cite{vedula1999three}) to well-regularize the optimization process. Modern approaches~\cite{yang2020upgrading,teed2021raft,liu2022camliflow} explore data-driven models to directly predict scene flow in a feed-forward manner. Despite recent progress, existing models are limited to two frames and are not able to track long-range correspondences in 3D.
+
+\paragraph{2D Point Tracking.}
+Recent years have witnessed significant progress in long-term 2D point tracking~\cite{doersch2023tapvid,harley2022particle,zheng2023point,wang2023omnimotion,doersch2023tapir,karaev2023cotracker,doersch2024bootstap,karaev24cotracker3,cho2024local,harley2025alltracker}. For instance, CoTracker2~\cite{karaev2023cotracker} leverages self-attention to aggregate spatial context from supporting tracks, while LocoTrack~\cite{cho2024local} extends traditional 2D correlation into bidirectional 4D correlation for more robust local matching. These methods typically estimate long-range point trajectories over an entire video, handling occlusions effectively. In this work, we investigate their extension to 3D, but with a sparse multi-view setup and known camera parameters, rather than monocular input. Moreover, unlike recent trackers~\cite{karaev24cotracker3,doersch2024bootstap} that reduce the synthetic-to-real domain gap via self-supervision or pseudolabeling, our approach focuses on direct supervision from synthetic data.
+
+\paragraph{3D Point Tracking.}
+3D point tracking has seen innovative contributions from recent methods~\cite{yu2023videodoodles,luiten2023dynamic,xiao2024spatialtracker,ngo2024delta,xiao2025spatialtrackerv2,tapip3d,som2024}. SpatialTracker~\cite{xiao2024spatialtracker} generalizes point tracking into 3D by integrating depth information through a Triplane representation~\cite{triplane} and DELTA~\cite{ngo2024delta} introduces a coarse-to-fine approach to estimate dense trajectories across the entire image plane, as opposed to sparse point tracking. Both methods assume monocular input. The concurrent SpatialTrackerV2~\cite{xiao2025spatialtrackerv2} and TAPIP3D~\cite{tapip3d} are also monocular. In a different approach, Dynamic 3DGS~\cite{luiten2023dynamic} leverages 3D Gaussian reconstructions over time to track dense scene elements in 3D and perform accurate 2D and 3D point tracking, but requires a multi-camera setup of 27 cameras in Panoptic Studio~\cite{joo2015panoptic} in addition to sparse depth from depth sensors for point cloud initialization and segmentation masks for relevant objects. We also use multiple input views but assume fewer cameras (\eg, four), which is more practical for real-world applications. Works such as~\cite{som2024,dreamscene4d,seidenschwarz2024dynomo} use monocular tracking priors and our experiments suggest that the multi-view extension of~\cite{som2024} is constrained by this. In contrast, our method directly learns a multi-view tracking prior that is neither Gaussian-based nor optimization-based. VideoDoodles~\cite{yu2023videodoodles} presents an interactive system that anchors hand-drawn animations to objects within a reconstructed 3D scene, harnessing optical flow and depth maps in a novel 3D point tracking algorithm. However, it is primarily designed for video editing rather than competitive performance on standard benchmarks such as TAPVid-2D~\cite{doersch2023tapvid}, whereas we focus on 3D point tracking accuracy.
+
+\section{Method}
+\label{sec:method}
+\input{figures_tex/pipeline}
+Our goal is to perform online 3D point tracking across multiple views, given a set of synchronized RGB frames with known camera parameters. The input consists of video sequences captured from $V$ different camera views, with each frame containing a set of query points that need to be tracked over time. We estimate temporally consistent 3D trajectories for these points while also predicting visibility, handling occlusions, and adapting to scene dynamics. Our method runs online at 7.2 FPS given RGB-D input. For RGB-only input, we rely on external depth estimation (\eg, DUSt3R~\cite{wang2024dust3r} runs at 0.17 FPS and VGGT~\cite{wang2025vggt} at 3.1 FPS). An overview of our method is provided in \cref{fig:pipeline}.
+
+Unlike single-view trackers that compute feature correlation on a 2D grid~\cite{karaev2023cotracker,karaev24cotracker3,cho2024local,ngo2024delta,doersch2023tapir,doersch2023tapvid,harley2022particle} or a triplane~\cite{xiao2024spatialtracker}, our method leverages a fused multi-view point cloud representation to establish $k$-nearest neighbors (kNN) feature correlations. While 2D-grid-based correlation can match irrelevant background pixels and triplane-based correlation inherently suffers from information loss, our kNN targets geometrically relevant 3D neighborhoods. This enables more robust tracking by integrating geometric consistency across views and learning motion priors directly from data.
+
+\subsection{Problem Formulation}
+\label{sec:problem-formulation}
+Given a calibrated multi-view video sequence $\mathbf{I}_t^v \in \mathbb{R}^{H \times W \times 3}$ captured by $V$ cameras over $T$ frames, our goal is to track $N$ query points in 3D space. We denote each of the $N$ query points as 
+$\mathbf{q}^n = (t_q^n,\, x_q^n,\, y_q^n,\, z_q^n) \in \mathbb{R}^4$, 
+where $t_q^n$ denotes the query frame and $(x_q^n,\, y_q^n,\, z_q^n)$ its initial 3D location in world coordinates. Besides images and query points, the camera intrinsics $\mathbf{K}_t^v \in \mathbb{R}^{3 \times 3}$ and extrinsics $\mathbf{E}_t^v \in \mathbb{R}^{4 \times 4}$ are given for each view $v$ and frame~$t$.
+
+The goal is to predict the 3D trajectory 
+\{$\mathbf{p}_t^n=(x_t^n,\, y_t^n,\, z_t^n) \in \mathbb{R}^3$, $t \ge t_q^n$\}, along with visibilities 
+\{$v_t^n \in \{\,0,1\,\}$\}
+where \(v_t^n = 1\) denotes that the point is visible in at least one camera view, and \(v_t^n = 0\) indicates occlusion in all views. Note that the query location matches the ground-truth track location at time $t_q^n$, \ie $\mathbf{p}_{t_q^n}^n = (x_q^n,\, y_q^n,\, z_q^n)$.
+
+\subsection{Point Cloud Encoding of Multi-view Videos}
+\label{sec:fused-point-cloud}
+\paragraph{Feature Maps.}
+For each input frame $\mathbf{I}_t^v$, we extract $d$-dimensional per-view feature maps
+$\Phi_t^v = \mathcal{\varphi}(\mathbf{I}_t^v)$
+using a convolutional backbone (same as in \cite{karaev24cotracker3,karaev2023cotracker,xiao2024spatialtracker}).
+We use a stride factor of $k=4$ to downscale the input resolution for computational efficiency, such that
+$\Phi_t^v \in \mathbb{R}^{\frac{H}{k} \times \frac{W}{k} \times d}$.
+We also compute the feature maps at $S=4$ different scales, \ie, $\Phi_t^{v,s} \in \mathbb{R}^{\frac{H}{k2^{s-1}} \times \frac{W}{k2^{s-1}} \times d}$, $s = 1,\dots,S$. These are obtained by downscaling the base features (\eg, via average pooling) and will later be used in our pyramid correlation.
+
+\paragraph{Fused 3D Feature Point Cloud.}
+We obtain multi-view-consistent depth maps $\mathbf{D}_t^v \in \mathbb{R}^{H \times W}$ for each view $v$ and frame $t$ using off-the-shelf depth estimation~\cite{wang2024dust3r,luiten2023dynamic,wang2025vggt} (see \cref{app:depth-analysis}). Sensor-based depth (\eg, Kinect) can also be used if available and preferred.  Using the depth and camera parameters, we lift each valid pixel $(u_x,u_y)$ into 3D:
+\begin{tightalign}
+    \label{eq:uplift}
+    \mathbf{x} \;=\; \mathbf{E}_t^{v^{-1}}\bigl(\mathbf{K}_t^{v^{-1}}\left(\,u_x,u_y,1\,\right)^\top \cdot \mathbf{D}_t^v[\,u_y,u_x\,]\bigr).
+\end{tightalign}
+Invalid pixels are those that do not have a valid depth value due to missing Kinect depth values. For estimated depth, we retain all pixels and train for robustness (instead of thresholding by uncertainty predictions). Each of these lifted points $\mathbf{x}$ is associated with its corresponding feature from $\Phi_t^{v,s}$ and then fused across views into a single point cloud:
+\begin{tightalign}
+    \label{eq:pointcloud}
+    \mathcal{X}_t^s \;=\; \bigl\{\bigl(\mathbf{x},\,\Phi_t^{v,s}[\,u_y,u_x\,]\bigr)\;\big|\;v&\in\{1,\dots,V\},\notag\\&\,(u_x,u_y)\in\Omega_t^v\bigr\},
+\end{tightalign}
+where $\Omega_t^v$ is the set of valid pixels in view $v$. This unified 3D representation facilitates the computation of spatial correlation across views, enabling multi-view-consistent tracking.
+
+An alternative to our fused point cloud is to combine multi-view features via a single global \emph{triplane}~\cite{xiao2024spatialtracker}, projecting 3D points onto three orthogonal planes (\eg, XY, YZ, ZX). However, this inevitably suffers from projection collisions: different surfaces map to the same planar coordinates, causing destructive feature averaging. It also requires choosing a fixed bounding region for the scene, which leads to wasted resolution or clipped content for large or uncentered scenes. By contrast, our point cloud preserves features directly in 3D, avoids collisions, and adapts naturally to different scenes, resulting in more robust multi-view tracking.
+
+\paragraph{Track Features.}
+We assign a $d$-dimensional time-dependent appearance feature $\mathbf{f}_t^n$ to each tracked point. These features are initialized by sampling from the fused 3D feature point cloud at the query frame and 3D location:
+\begin{tightalign}
+\bigl(\mathbf{x}^{n,*},\mathbf{\phi}^{n,*}\bigr)
+\;=\;\!\argmin_{\bigl(\mathbf{x},\,\mathbf{\phi}\bigr)\,\in\,\mathcal{X}_{\,t_n^q}^{\,1}}
+\|\mathbf{x}-\mathbf{p}_{t_n^q}^n\|,
+\end{tightalign}
+for every track $n$.
+We use the sampled feature \(\mathbf{\phi}^{n,*}\) to initialize \(\mathbf{f}_t^n\) for all \(t \ge t_n^q\). These track features are subsequently used when computing track-centric spatial correlation with nearest neighbors from the fused 3D feature point cloud (see \cref{sec:multi-scale-spatial-correlation}), but also refined by the spatiotemporal transformer to capture appearance changes over time (see \cref{sec:Transformer}).
+
+\subsection{Multi-Scale Spatial Correlation}
+\label{sec:multi-scale-spatial-correlation}
+Instead of computing correlations separately for each view~\cite{karaev2023cotracker,karaev24cotracker3,cho2024local,ngo2024delta,doersch2023tapir,doersch2023tapvid,harley2022particle} or on an auxiliary triplane~\cite{xiao2024spatialtracker}, we establish correspondences directly in the fused feature point cloud using a multi-scale kNN approach. For each query point, we retrieve its $K$ nearest neighbors at different scales from $\mathcal{X}_t^s$ and compute local kNN feature correlations:
+\begin{tightalign}
+    \label{eq:correlation}
+    \mathbf{C}_t^{n,s} \;=\; \bigl\{
+    \langle \mathbf{f}_t^n,\mathbf{\phi}_k\rangle
+    \;\big|\;
+    \bigl(\mathbf{x}_k,\mathbf{\phi}_k\bigr)
+    \in
+    \mathcal{N}_K\!\bigl(\mathbf{\hat{p}}_t^{n},\mathcal{X}_t^s\bigr)
+    \bigr\},
+\end{tightalign}
+where $\langle\cdot,\cdot\rangle$ is the dot product and $\mathcal{N}_K(\mathbf{\hat{p}}_t^{n},\mathcal{X}_t^s)$ finds the k-nearest neighbors around the current location estimate $\mathbf{\hat{p}}_t^{n}$ in the fused 3D feature point cloud. These correlations capture spatial dependencies at multiple scales and are fed into our transformer-based tracking module, allowing it to search increasingly larger 3D neighborhoods. For reference, average neighbor distances at the four scales on Panoptic Studio (made-up of \normaltilde10m–wide scenes) are $12.5 \pm 8.2$, $22.4 \pm 12.2$, $42.7 \pm 21.7$, and $85.8 \pm 44.0$\,cm. At the highest scale, this covers frame-to-frame motion of up to \normaltilde92~km/h at 30~FPS.
+
+Unlike 2D correlation, where pixel offsets implicitly encode direction, our 3D point cloud representation requires explicit 3D offsets. Concretely, for each neighbor $(\mathbf{x}_k,\mathbf{\phi}_k)$ we concatenate the local similarity $\langle \mathbf{f}_t^n,\mathbf{\phi}_k\rangle$ with the offset vector $(\mathbf{x}_k-\mathbf{\hat{p}}_t^{n})$ to encode direction and distance from $\mathbf{\hat{p}}_t^{n}$. This offset helps the model disambiguate different nearest neighbors and enables correlation-based matching in 3D.
+
+\subsection{Transformer-Based Iterative Tracking}
+\label{sec:Transformer}
+Our transformer refines track estimates over a sliding window of $T$ frames. For each track $n$ at time $t$, we construct a token $G_t^n=(\,\eta(\,\mathbf{\hat{p}}_t^{n}-\mathbf{\hat{p}}_{\,t_n^q}^{\,n}),\,\mathbf{f}_t^n,\,\mathbf{C}_t^{n,s},\,
+\hat{v}_t^n)$, where $\eta(\cdot)$ is a sinusoidal positional encoding. The tokens $\{G_t^n\}_{t,n}$ are passed to a transformer $\mathcal{\psi}$, which applies temporal self-attention across time and cross-attention with a small set of learned virtual tracks to model spatial dependencies, following the design in CoTracker2~\cite{karaev24cotracker3}. The transformer outputs residual position and feature updates $(\Delta \mathbf{\hat{p}}_t^n,\Delta \mathbf{f}_t^n)=\mathcal{\psi}(G_t^n)$, which we apply iteratively for $m=1,\dots,M$:
+\begin{tightalign}
+\mathbf{\hat{p}}_t^{n,m+1} \;=\;\mathbf{\hat{p}}_t^{n,m} \,+\,\Delta\mathbf{\hat{p}}_t^{n,m+1}, \\
+\mathbf{f}_t^{n,m+1} \;=\;\mathbf{f}_t^{n,m} \,+\,\Delta\mathbf{f}_t^{n,m+1}.
+\end{tightalign}
+After each iteration $m$, we recompute $\mathbf{C}_t^{n,s,m}$ based on the refined position and feature. At the final iteration $m=M$, we estimate visibility as $\hat{v}_t^{\,n}\;=\;\sigma\bigl(W\,\mathbf{f}_t^{n,M}\bigr)$,
+where $\sigma(\cdot)$ is the sigmoid function and $W$ a learned projection matrix.
+
+\subsection{Windowed Inference and Unrolled Training}
+\label{sec:windowed-inference-and-unrolled-training}
+To process long videos, we adopt a windowed approach as in CoTracker~\cite{karaev2023cotracker}. Let $T$ be the maximum window size; for a longer video of length $T'>T$, we divide it into $J$ overlapping windows of length $T$, each shifted by $T/2$ frames. Once the transformer completes $M$ iterative updates for window $j$, its final track estimates initialize window $j+1$, allowing refined trajectories to propagate. Let $\mathbf{\hat{p}}_t^{\,n,m,j}$  be the predicted location of query $n$ at time $t$ after iteration $m$ in window $j$, and $\hat{v}_t^{\,n,j}$ its visibility (predicted only at the final iteration). During training, we unroll these windowed updates so that each iteration learns to correct or refine predictions from previous windows and iterations.
+
+\subsection{Supervision}
+Training is supervised with ground-truth trajectories $\mathbf{p}_t^n$ and visibility labels $v_t^n$. The total loss consists of a position loss ($\mathcal{L}_\text{xyz}$) and a visibility loss ($\mathcal{L}_\text{vis}$), balanced by $\lambda_\text{vis}$:
+\begin{tightalign}
+\mathcal{L}
+    =
+    \mathcal{L}_\text{xyz}
+    + \lambda_{\text{vis}} \mathcal{L}_{\text{vis}}.
+\end{tightalign}
+In particular, the position loss is the weighted $\ell_1$-norm error between the predicted and the ground-truth 3D positions:
+\begin{tightalign}
+\mathcal{L}_{\text{xyz}}
+    \;=\;
+    \sum_{j,m,n,t}
+    \frac{\gamma^{\,M-m}}{JMNT}
+    \;
+    \bigl\|\, \mathbf{\hat{p}}_t^{\,n,m,j} - \mathbf{p}_t^{\,n,m,j}\bigr\|_1
+     \,,
+\end{tightalign}
+where $j$ indexes the windows $J$, $m$ the iterative updates $M$, $n$ the trajectories $N$, $t$ the number of frames $T$, and $\gamma$ is a weighting factor used to penalize the later iterations of the iterative refinement more. The visibility loss addresses class imbalance by minimizing the balanced binary cross-entropy (B-BCE) between predicted and ground-truth labels:
+\begin{tightalign}
+\mathcal{L}_{\text{vis}}
+    \;=\;
+    \sum_{j,t,n}
+    \frac{1}{J\,T\,N}
+    \operatorname{B{-}BCE}\bigl(\hat{v}_t^{\,n,j},\,v_t^{\,n,j}\bigr).
+\end{tightalign}
+
+\section{Experiments}
+\label{sec:experiments}
+
+\paragraph{Datasets.}
+To train our model, we generate a synthetic multi-view dataset, MV-Kub, using Kubric~\cite{greff2022kubric}, simulating 5K multi-view video sequences. Since no large-scale datasets exist for multi-view 3D point tracking, we rely on synthetic data for supervised training. For evaluation on the hand dexterity dataset DexYCB~\cite{dexycb}, we sample 10 scenes, leveraging ground-truth object and hand poses to generate track labels. We also construct a Panoptic Studio evaluation dataset by merging existing monocular labels from TAPVid-3D~\cite{koppula2024tapvid} for a total of 6 scenes. Evaluation query points are randomly sampled from both static and moving surfaces.
+
+All results, unless otherwise stated, are reported assuming the availability of estimated depth~\cite{wang2024dust3r} for DexYCB, ground-truth optimization-based depth~\cite{luiten2023dynamic} for Panoptic Studio, and simulated depth for MV-Kub. In \cref{app:sub:ablation} we ablate the impact of depth sources on the performance. 
+
+\input{tables/eval_mvtracker}
+
+\paragraph{Evaluation Metrics.}
+As no standard metrics exist for multi-view 3D point tracking, we extend those from monocular benchmarks~\cite{doersch2023tapvid}, reporting four key metrics: (1) Median Trajectory Error (MTE) for visible points, quantifying spatial accuracy; (2) \davg, the average location accuracy over a set of threshold distances; (3) Occlusion Accuracy (OA), measuring the model's binary visibility prediction across views; and (4) Average Jaccard (AJ), which jointly evaluates occlusion and position accuracy. All metrics are computed per track, averaged within a scene, and finally aggregated across all dataset scenes. See \cref{app:subsec:metrics} for details. 
+
+\paragraph{Training.} 
+We train our method on MV-Kub for 200K steps on 8 GH200 chips with 96GB GPU memory over 8 days, with a batch size of 8 and up to 2048 trajectories per sample. Our model is implemented in PyTorch (with Lightning Fabric for multi-node training) and optimized using AdamW \cite{loshchilov2017decoupled}. The model operates with a latent feature dimension of $d=128$ and is trained on MV-Kub sequences of up to 24 frames using a sliding window of 12 frames. We use six-head self-attention layers with a hidden size of 256. We apply a range of augmentations to improve generalization and robustness. See \cref{app:sec:trainingdetails} for further details. 
+
+\paragraph{Baselines.}
+Since there currently exist no other feed-forward multi-view point trackers, we implement a triplane-based baseline by extending SpaTracker~\cite{xiao2024spatialtracker} to fuse multi-view features into a single global triplane, referred to as the ``Triplane Baseline'' in experiments. 
+We also evaluate against two multi-view methods that require test-time optimization: Shape of Motion~\cite{som2024} and Dynamic 3DGS~\cite{luiten2023dynamic}; please refer to \cref{app:sec:baseline_implementation} for their implementation details. 
+
+We further evaluate against monocular 2D and 3D point trackers. For 2D point trackers (CoTracker2~\cite{karaev2023cotracker}, CoTracker3~\cite{karaev24cotracker3}, LocoTrack~\cite{cho2024local}), we run the models on each camera separately with the query points that are deemed to be best visible from that view (based on their projected depth), then lift the resulting 2D estimates to 3D using the known intrinsics and the same depth used by our model. 
+We similarly run 3D trackers (DELTA~\cite{ngo2024delta}, SpaTracker~\cite{xiao2024spatialtracker}, SpaTrackerV2~\cite{xiao2025spatialtrackerv2}, TAPIP3D~\cite{tapip3d}), but give depth as input to directly get 3D tracks. We finally merge per-camera predictions into the world space using known camera poses. 
+
+\subsection{Method Comparisons} \label{sec:results}
+\input{figures_tex/results_qualitative}
+\cref{tab:main-results-table} compares MVTracker against several baselines on Panoptic Studio, DexYCB, and Multi-View Kubric. Our method consistently achieves higher location accuracy (\davg), better occlusion-aware tracking (AJ), and lower trajectory errors (MTE). This is visually apparent in \cref{fig:qualitative}. 
+
+On Panoptic Studio, our tracker obtains an AJ of \B{86.0} and a \davg of \B{94.7}, substantially outperforming single-view methods such as SpaTracker (61.5\,AJ) and CoTracker3 (74.5\,AJ). We observe similar trends on DexYCB, where our method reaches an AJ of \B{71.6} with a median trajectory error of only \B{2.0}\,cm, compared to the lower performance of LocoTrack, DELTA, and CoTracker3. This is because 2D point trackers are not robust to lifting their 2D trajectories into 3D estimates based on estimated depth maps. Finally, on the Multi-View Kubric validation set, our model attains an AJ of \B{81.4} and an exceptionally low MTE of \B{0.7}\,cm.
+
+Compared to optimization-based methods, which require per-sequence training, our approach is fully feed-forward and runs at 7.2 FPS. While Shape of Motion achieves reasonable accuracy, its iterative optimization makes it impractical for large-scale or real-time applications. Dynamic 3DGS further requires dense camera setups, limiting its applicability to real-world scenarios with fewer cameras.
+
+\paragraph{Impact of the kNN-based correlation.}
+Our method’s strong performance is largely due to its kNN-based correlation mechanism. Replacing it with a world-aligned triplane correlation leads to a significant drop in performance (see \cref{tab:main-results-table}). Triplane-based methods compress multi-view features onto fixed 2D planes, causing destructive feature collisions when different 3D points from the same or different views project to the same grid cell. This leads to information loss that cannot easily be disentangled, especially as the number of views increases. Moreover, triplanes require placing the 2D planes in a fixed scene-aligned coordinate frame with a pre-defined scale and extent, which is difficult to generalize across diverse camera setups and scene scales. In contrast, our kNN-based correlation operates directly in 3D world space and dynamically selects relevant neighbors, avoiding these issues and enabling more robust tracking.
+
+\subsection{Ablations} \label{sec:ablations} 
+We further evaluate the impact of the point correlation components, the varying number of input views, and different camera setups, as well as training augmentation strategies. 
+
+\input{tables/abl_point_correlation}
+\paragraph{Point Correlation Components.}
+\cref{tab:ablate-model-correlation} analyzes the impact of different components in our correlation module. Unlike 2D correlation, where relative direction is implicitly encoded in the pixel grid, kNN in 3D retrieves neighbors from all directions, making explicit offset information crucial. We compare three variants: (i) no offset vector, (ii) offset vector plus explicit neighbor location, and (iii) offset vector only. We train each variant for 25\% of total steps on 8 GPUs. The results suggest that (iii) “offset only” achieves the best performance across metrics, indicating that encoding only the relative offset, without concatenating absolute neighbor locations, yields most effective correspondences.
+
+\input{tables/abl_number_of_views}
+
+\paragraph{Effect of the Number of Input Views.}  
+\cref{fig:ablate-number-of-views} shows how performance changes with the number of input views on DexYCB. Our tracker consistently improves as more views are added, achieving an AJ of 64.0 with a single view, 71.1 with four views, and 79.2 with eight views. This trend highlights the importance of multi-view information in reducing depth ambiguities and improving spatial consistency.
+
+Compared to baseline methods, our approach benefits the most from additional views, thus suggesting better scalability. While SpatialTracker and Triplane show moderate improvements with more views, their performance plateaus earlier, indicating difficulty in fully leveraging additional multi-view information. In contrast, single-view methods like CoTracker3, DELTA, and LocoTrack show limited gains, reinforcing their inability to reliably reconstruct 3D correspondences. Similar trends are observed on Panoptic Studio as well as Multi-View Kubric (see \cref{sec:number-of-views-details}).
+
+\input{tables/abl_camera_setups}
+\paragraph{Impact of Camera Setups.}  
+\cref{tab:ablate-camera-setups} shows the performance (measured in AJ) under different camera configurations on Panoptic Studio and DexYCB. For Panoptic Studio, we selected sets of four cameras from the available 27, ensuring they were either positioned opposite each other (Setup A) or placed nearby with varying baseline sizes (Setups B and C). For DexYCB, we sequentially chose four out of the available eight cameras: views 1--4 for setup A, views 3--6 for setup B, and views 5--8 for setup C. Note that on Multi-View Kubric the camera configuration is randomized (with cameras generally oriented toward the scene center), so separate evaluations are unnecessary; the main table (\cref{tab:main-results-table}) already reflects a random sampling of camera placements. Our method consistently achieves high AJ across all tested setups, indicating robustness to varying camera positions.
+
+\paragraph{Ablation of Training Augmentation.}
+In \cref{app:sec:trainingdetails}, we examine how training augmentations impact performance, focusing on (i) the number of views used during training (ranging from 1 to 8) and (ii) the depth map source (ground truth vs. off-the-shelf estimation). Our results show that training with a variable number of views significantly improves robustness to different camera setups, ensuring better generalization across datasets. Additionally, incorporating both accurate and estimated depth maps helps mitigate domain shifts and enhances adaptability to real-world depth estimation errors. This is particularly noticeable on DexYCB, where DUSt3R depth quality varies significantly.
+
+Overall, these ablations suggest that MVTracker remains robust across different camera configurations, benefits from diverse training conditions, and performs best with kNN-based offset encoding and carefully designed augmentations. Please refer to \cref{app:sub:ablation} for more ablation experiments and additional discussions. The inference speed measurements in \cref{app:sec:inference} show that MVTracker runs at 7.2 FPS when provided with sensor depth, underscoring its suitability for near-real-time and large-scale applications.
+
+\section{Discussion and Future Work} \label{sec:discussion}
+While our method effectively tracks 3D points across multiple views, it has limitations. The key challenge is its reliance on the quality of sparse-view depth estimation. If no sensor depth is available, the approach assumes a reasonably accurate estimated depth. However, in sparse camera setups, such estimation can be unreliable or fail entirely, making tracking infeasible. While our learned motion priors help mitigate moderate noise or incompleteness, a more principled solution would involve jointly estimating depth and tracking for potential mutual refinement, or developing a foundation model for 4D reconstruction with integrated tracking capabilities. We view this as a critical future direction for the community. \cref{app:depth-analysis} provides additional analysis on the impact of depth quality, robustness to noise, comparisons across different estimators, and failure cases.
+
+Another limitation is that our study focuses on tracking within bounded regions where camera overlap is sufficient. Extending to unbounded or outdoor environments presents additional challenges due to limited training data availability, scene scale variation, and less constrained viewpoints.
+
+A related issue is scene normalization: our model is trained on a fixed dataset with randomized but similar scene scales and layouts. To bridge distribution gaps at test time, we currently apply manually or heuristically determined similarity transforms. While this works well on our benchmarks and a few additional qualitative datasets, more principled approaches are needed to support arbitrary new scenes.
+
+Finally, long-term 3D point tracking faces the broader challenge of scarce large-scale real-world training data. Unlike optimization-based approaches, data-driven point trackers require diverse training distributions to generalize. However, most existing datasets are synthetic, limiting robustness. Recent community efforts~\cite{karaev24cotracker3,doersch2024bootstap} show promise in leveraging self-supervised learning from real-world videos, which could be instrumental for improving generalization.
+
+\vfill
+\section{Conclusion}
+\label{sec:conclusion}
+We introduce MVTracker, the first \emph{data-driven multi-view 3D point tracker}, which combines kNN-based correlation in a fused 3D point cloud with a spatiotemporal transformer to track arbitrary points across multiple views. Our method outperforms single-view, multi-view, and optimization-based baselines, suggesting strong generalization across diverse camera configurations and occluded environments.
+
+We hope that our work enables real-world use cases in robotics~\cite{10611409}, provides a better data-driven multi-view prior for optimization-based reconstruction methods~\cite{som2024,lei2024mosca,luiten2023dynamic}, and acts as a point tracking head in the upcoming age of scalable end-to-end 4D reconstruction and tracking models.
+
+\vfill
+\section*{Acknowledgements}
+\begin{fulljustify}
+    We are grateful for insightful discussions with Yiming Wang, Zador Pataki, Luigi Piccinelli, Paul‑Edouard Sarlin, and Philipp Lindenberger. We thank Ignacio Rocco and Skanda Koppula for clarifications regarding TAPVid-3D. This study was conducted within the national “Proficiency” research project (No. PFFS-21-19) funded by the Swiss Innovation Agency Innosuisse in 2021 as one of 15 flagship initiatives. This work was additionally supported as part of the Swiss AI initiative by a grant from the Swiss National Supercomputing Centre (CSCS) under project IDs A03 and A136 on Alps, enabling large-scale training and evaluation.
+\end{fulljustify}
+
+\clearpage
+{
+    \small
+    \bibliographystyle{ieeenat_fullname}
+    \bibliography{main}
+}
+
+\clearpage
+\input{appendix}
+\end{document}
