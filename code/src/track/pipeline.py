@@ -11,7 +11,7 @@ from .traj_smooth import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 from .traj_vis import TrajectoryVideoStitcher
 
 # ===================== 核心配置 =====================
-OUTPUT_ROOT = "./pipeline"  # 根输出目录
+OUTPUT_ROOT = "./pipeline_1800frames"  # 根输出目录
 FRAME_INTERVAL = 1800  # 每多少帧处理一次
 OVERLAP_FRAMES = 30  # 片段间重叠帧数（避免轨迹断裂）
 FPS = 30  # 视频帧率
@@ -111,7 +111,7 @@ def main():
             "PROCESS_SECONDS": process_seconds,
             "GENERATE_VIDEO": True,
             "FPS": FPS,
-            "PERSON_MODEL_PATH": "/data/ljy23/project/yolov12/model/yolo26x.pt",
+            "PERSON_MODEL_PATH": "/data/ljy23/project/track/yolov12/model/yolo26x.pt",
         }
 
         # 6. 轨迹生成
@@ -152,7 +152,7 @@ def main():
             start_frame=start_frame,
             max_process_frames=start_frame + int(process_seconds * FPS),
             output_dir=seg_output_dir,
-            operation_mode="siglip",
+            operation_mode="face",
         )
         visualizer.run()
         reid_paths = visualizer.get_output_paths()

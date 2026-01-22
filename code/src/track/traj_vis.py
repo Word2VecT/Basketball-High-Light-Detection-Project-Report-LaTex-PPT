@@ -9,16 +9,17 @@ from scipy.interpolate import interp1d
 
 class TrajectoryVideoStitcher:
     """
-    单JSON+多视频拼接类（移除时间日期文件夹逻辑）
-    1. 接收单个ReID JSON路径 + 多视频路径列表
-    2. 从JSON的box字段解析视频来源，为每个视频筛选对应轨迹
-    3. 直接输出到指定根目录，无时间子文件夹
+    单JSON+单视频拼接类（仅用第一个视频做左侧，右侧绘制全部轨迹）
+    1. 接收单个ReID JSON路径 + 多视频路径列表（仅使用第一个视频作为左侧画面）
+    2. 从JSON解析所有轨迹数据（不区分视频来源）
+    3. 左侧显示第一个视频画面，右侧绘制所有轨迹的汇总俯视图
+    4. 直接输出到指定根目录，无时间子文件夹
     """
 
     def __init__(
         self,
         single_json_path: str,  # 单个ReID JSON路径
-        video_paths: List[str],  # 视频路径列表
+        video_paths: List[str],  # 视频路径列表（仅使用第一个）
         output_root_dir: str = "./stitch_output",  # 自定义输出根目录
         start_frame: int = 0,
         maxframe: int = 300,
@@ -34,8 +35,12 @@ class TrajectoryVideoStitcher:
         # ===================== 参数校验 =====================
         if not os.path.exists(single_json_path):
             raise FileNotFoundError(f"单个JSON文件不存在：{single_json_path}")
+        if not video_paths:
+            raise ValueError("视频路径列表不能为空")
+        # 修改1：仅保留第一个视频作为左侧视频源
         self.single_json_path = single_json_path
-        self.video_paths = video_paths
+        self.main_video_path = video_paths[0]  # 左侧仅用第一个视频
+        self.video_paths = video_paths  # 保留原列表（兼容原有变量）
         self.output_root_dir = output_root_dir
 
         # 基础配置
@@ -47,7 +52,7 @@ class TrajectoryVideoStitcher:
         self.interp_points_num = interp_points_num
         self.half_court = half_court
 
-        # ===================== 输出目录配置（移除时间文件夹） =====================
+        # ===================== 输出目录配置 =====================
         self.base_output_dir = os.path.join(
             self.output_root_dir, "stitch_video_single_json"
         )
@@ -90,13 +95,13 @@ class TrajectoryVideoStitcher:
         self.LEGEND_MARGIN = 20
         self.COLOR_BLOCK_SIZE = 20
 
-        # 全局轨迹数据
+        # 全局轨迹数据（修改2：移除视频来源记录）
         self.global_traj_data: Dict[
-            str, Dict[int, Tuple[float, float, str]]
-        ] = {}  # traj_id: {frame: (x, y, video_path)}
+            str, Dict[int, Tuple[float, float]]
+        ] = {}  # traj_id: {frame: (x, y)}
         self.global_player_id_map: Dict[str, str] = {}  # traj_id: player_id
 
-        # 临时存储（每个视频处理时重新初始化）
+        # 临时存储
         self.traj_data: Dict[str, Dict[int, Tuple[float, float]]] = {}
         self.player_id_map: Dict[str, str] = {}
         self.player_color_map: Dict[str, Tuple[int, int, int]] = {}
@@ -108,7 +113,7 @@ class TrajectoryVideoStitcher:
         # 预加载全局JSON数据
         self._load_global_json_data()
 
-    # ===================== 工具方法（删除时间文件夹相关方法） =====================
+    # ===================== 工具方法 =====================
     def ensure_dir(self, path: str) -> None:
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
@@ -143,7 +148,7 @@ class TrajectoryVideoStitcher:
         return width, height, fps, maxframe
 
     def _init_stitch_size(self, left_height: int) -> Tuple[int, int, int, float]:
-        """初始化单个视频的拼接尺寸"""
+        """初始化拼接尺寸"""
         stitch_height = self.RIGHT_HEIGHT
         left_scale = stitch_height / left_height
         left_width_scaled = int(self.left_width * left_scale)
@@ -153,9 +158,9 @@ class TrajectoryVideoStitcher:
         )
         return stitch_width, stitch_height, left_width_scaled, left_scale
 
-    # ===================== 核心方法：加载全局JSON数据 =====================
+    # ===================== 核心方法：加载全局JSON数据（修改3：移除视频来源解析） =====================
     def _load_global_json_data(self) -> None:
-        """加载单个JSON的所有轨迹数据，记录每个帧对应的视频来源"""
+        """加载单个JSON的所有轨迹数据（不区分视频来源）"""
         self.global_traj_data.clear()
         self.global_player_id_map.clear()
 
@@ -180,7 +185,7 @@ class TrajectoryVideoStitcher:
                     continue
 
                 try:
-                    # 解析坐标
+                    # 解析坐标（移除视频来源解析）
                     x_m = float(frame_info.get("x", 0.0))
                     y_m = float(frame_info.get("y", 0.0))
                     # 过滤无效坐标
@@ -189,28 +194,7 @@ class TrajectoryVideoStitcher:
                     if self.half_court and not (0.0 <= y_m <= self.COURT_HALF_HEIGHT):
                         continue
 
-                    # 核心：解析视频来源（优先full_video_path，其次video_filename匹配）
-                    video_path = ""
-                    box_list = frame_info.get("box", [])
-                    if box_list and isinstance(box_list, list):
-                        for box_item in box_list:
-                            # 从box中提取视频路径
-                            full_video_path = box_item.get("full_video_path", "")
-                            video_filename = box_item.get("video_filename", "")
-                            if full_video_path and os.path.exists(full_video_path):
-                                video_path = full_video_path
-                                break
-                            # 如果没有完整路径，用文件名匹配输入的视频列表
-                            elif video_filename:
-                                for vp in self.video_paths:
-                                    if video_filename in vp:
-                                        video_path = vp
-                                        break
-
-                    if not video_path:
-                        continue  # 无视频来源的帧跳过
-
-                    frame_coords[frame_num] = (x_m, y_m, video_path)
+                    frame_coords[frame_num] = (x_m, y_m)
                     valid_frame_count += 1
 
                 except (ValueError, TypeError):
@@ -227,46 +211,18 @@ class TrajectoryVideoStitcher:
         print(
             f"全局JSON加载完成：有效轨迹数={total_traj_count} | 有效帧总数={valid_frame_count}"
         )
-        # 打印视频-轨迹映射关系
-        video_traj_map = {}
-        for traj_id, frame_data in self.global_traj_data.items():
-            for frame, (_, _, video_path) in frame_data.items():
-                if video_path not in video_traj_map:
-                    video_traj_map[video_path] = set()
-                video_traj_map[video_path].add(traj_id)
-        for video_path, traj_ids in video_traj_map.items():
-            print(f"  视频{os.path.basename(video_path)}：关联{len(traj_ids)}条轨迹")
+        print(f"  总计加载{len(self.global_traj_data)}条轨迹用于右侧绘制")
 
-    # ===================== 核心方法：按视频筛选轨迹数据 =====================
-    def _filter_traj_data_for_video(self, target_video_path: str) -> None:
-        """为指定视频筛选JSON中属于该视频的轨迹数据"""
-        self.traj_data.clear()
-        self.player_id_map.clear()
+    # ===================== 核心方法：加载所有轨迹数据（修改4：不再按视频筛选） =====================
+    def _load_all_traj_data(self) -> None:
+        """加载所有全局轨迹数据（不区分视频来源）"""
+        self.traj_data = self.global_traj_data.copy()
+        self.player_id_map = self.global_player_id_map.copy()
+        print(f"加载所有轨迹数据：共{len(self.traj_data)}条轨迹")
 
-        print(f"\n为视频{os.path.basename(target_video_path)}筛选轨迹数据...")
-        traj_count = 0
-        frame_count = 0
-
-        for traj_id, frame_data in self.global_traj_data.items():
-            filtered_frames = {}
-            # 筛选该视频的帧
-            for frame_num, (x_m, y_m, video_path) in frame_data.items():
-                if video_path == target_video_path:
-                    filtered_frames[frame_num] = (x_m, y_m)
-                    frame_count += 1
-
-            if filtered_frames:
-                self.traj_data[traj_id] = filtered_frames
-                self.player_id_map[traj_id] = self.global_player_id_map.get(
-                    traj_id, "未匹配"
-                )
-                traj_count += 1
-
-        print(f"筛选完成：该视频有效轨迹数={traj_count} | 有效帧数量={frame_count}")
-
-    # ===================== 绘图相关方法（移除时间文件夹标注） =====================
+    # ===================== 绘图相关方法 =====================
     def _init_player_colors(self) -> None:
-        """为单个视频的球员分配颜色"""
+        """为球员分配颜色"""
         self.player_color_map.clear()
         unique_players = set(self.player_id_map.values())
         for player_id in unique_players:
@@ -345,7 +301,7 @@ class TrajectoryVideoStitcher:
         return self._interpolate_points(pixel_points)
 
     def _draw_right_frame(self, current_frame: int) -> np.ndarray:
-        """绘制右侧俯视图（移除时间文件夹标注）"""
+        """绘制右侧总轨迹俯视图"""
         frame = self.court_bg.copy()
         for traj_id in self.traj_data.keys():
             player_id = self.player_id_map.get(traj_id, "未匹配")
@@ -396,7 +352,7 @@ class TrajectoryVideoStitcher:
         )
         cv2.putText(
             frame,
-            f"Single JSON: {len(self.traj_data)} tracks | Output: {self.output_root_dir}",
+            f"Total Tracks: {len(self.traj_data)} | Main Video: {os.path.basename(self.main_video_path)}",
             (self.LEGEND_MARGIN, self.LEGEND_MARGIN + 60),
             cv2.FONT_HERSHEY_SIMPLEX,
             self.FONT_SCALE,
@@ -481,44 +437,40 @@ class TrajectoryVideoStitcher:
         stitch_frame = np.hstack((left_resized, right_frame))
         return stitch_frame
 
-    # ===================== 生成单个视频拼接结果 =====================
-    def _generate_single_stitch_video(
-        self, video_path: str, video_index: int
-    ) -> Optional[str]:
-        """为单个视频生成拼接视频"""
+    # ===================== 生成拼接视频（修改5：仅处理第一个视频，加载所有轨迹） =====================
+    def _generate_stitch_video(self) -> Optional[str]:
+        """生成拼接视频（左侧第一个视频，右侧所有轨迹）"""
         try:
-            print(
-                f"\n==================== 开始处理第{video_index + 1}个视频 ===================="
-            )
-            print(f"视频路径：{video_path}")
+            print("\n==================== 开始生成拼接视频 ====================")
+            print(f"左侧视频路径：{self.main_video_path}")
 
-            # 1. 初始化单个视频的基础信息
+            # 1. 初始化视频基础信息
             self.left_width, self.left_height, left_fps, maxframe = (
-                self._load_input_video_info(video_path)
+                self._load_input_video_info(self.main_video_path)
             )
             stitch_width, stitch_height, left_width_scaled, _ = self._init_stitch_size(
                 self.left_height
             )
 
-            # 2. 筛选该视频的轨迹数据
-            self._filter_traj_data_for_video(video_path)
+            # 2. 加载所有轨迹数据（不区分视频来源）
+            self._load_all_traj_data()
             if not self.traj_data:
-                print("警告：该视频无匹配的轨迹数据，跳过生成")
+                print("警告：无有效轨迹数据，跳过生成")
                 return None
 
             # 3. 初始化颜色和背景
             self._init_player_colors()
             self._load_court_background()
 
-            # 4. 构建输出路径（无时间文件夹）
-            video_name = os.path.basename(video_path).replace(".mp4", "")
+            # 4. 构建输出路径
+            video_name = os.path.basename(self.main_video_path).replace(".mp4", "")
             output_video_path = os.path.join(
                 self.base_output_dir,
-                f"{video_name}_stitch_{self.start_frame}-{maxframe}frames_{video_index + 1}.mp4",
+                f"{video_name}_stitch_{self.start_frame}-{maxframe}frames_all_tracks.mp4",
             )
 
             # 5. 初始化视频写入器
-            cap_left = cv2.VideoCapture(video_path)
+            cap_left = cv2.VideoCapture(self.main_video_path)
             cap_left.set(cv2.CAP_PROP_POS_FRAMES, self.start_frame)
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             video_writer = cv2.VideoWriter(
@@ -550,66 +502,60 @@ class TrajectoryVideoStitcher:
             # 7. 释放资源
             cap_left.release()
             video_writer.release()
-            print(f"✅ 第{video_index + 1}个视频生成完成！路径：{output_video_path}")
+            print(f"✅ 拼接视频生成完成！路径：{output_video_path}")
             return output_video_path
 
         except Exception as e:
-            print(f"❌ 第{video_index + 1}个视频处理失败：{e}")
+            print(f"❌ 视频处理失败：{e}")
             import traceback
-
             traceback.print_exc()
             return None
 
-    # ===================== 批量处理入口 =====================
+    # ===================== 入口方法（修改6：仅生成一个拼接视频） =====================
     def batch_generate_stitch_videos(self) -> List[Optional[str]]:
-        """批量生成拼接视频，返回视频路径列表"""
+        """生成拼接视频（仅处理第一个视频，右侧绘制所有轨迹）"""
         self.generated_video_paths.clear()
-        for idx, video_path in enumerate(self.video_paths):
-            video_output_path = self._generate_single_stitch_video(video_path, idx)
-            self.generated_video_paths.append(video_output_path)
+        video_output_path = self._generate_stitch_video()
+        self.generated_video_paths.append(video_output_path)
 
-        # 输出批量处理结果
-        print("\n==================== 批量处理完成 ====================")
-        print(f"总处理视频数：{len(self.video_paths)}")
-        print(
-            f"成功生成：{len([p for p in self.generated_video_paths if p is not None])}个"
-        )
-        print(f"失败：{len([p for p in self.generated_video_paths if p is None])}个")
-        for idx, path in enumerate(self.generated_video_paths):
-            if path:
-                print(f"视频{idx + 1}：{path}")
-            else:
-                print(f"视频{idx + 1}：处理失败")
+        # 输出处理结果
+        print("\n==================== 处理完成 ====================")
+        print(f"总处理视频数：1（仅使用第一个视频作为左侧画面）")
+        if video_output_path:
+            print(f"成功生成：1个")
+            print(f"生成的视频路径：{video_output_path}")
+        else:
+            print(f"成功生成：0个")
         return self.generated_video_paths
 
 
 # # -------------------------- 执行入口（示例） --------------------------
 # if __name__ == "__main__":
-#     # 1. 单个ReID JSON路径
-#     SINGLE_JSON_PATH = "./merged_trajectories.json"
-#     # 2. 视频路径列表
+# #     # 1. 单个ReID JSON路径
+#     SINGLE_JSON_PATH = "./pipe/traj_reid/merged_trajectories_with_player_id_0-300frames.json"
+# #     # 2. 视频路径列表（仅第一个会被使用）
 #     VIDEO_PATHS = [
-#         "/data/ljy23/data/videodata/A1/1-3v3_camera1_undistorted.mp4",
+#         "/data/ljy23/data/videodata/11.19/A1/A1-1_camera1_undistorted.mp4",
 #         "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4"
 #     ]
-#     # 3. 自定义输出根目录（无时间文件夹）
+# #     # 3. 自定义输出根目录
 #     OUTPUT_ROOT = "./my_stitch_output"
-#     # 4. 帧范围
-#     START_FRAME = 1200
-#     MAXFRAME = 1500
+# #     # 4. 帧范围
+# #     START_FRAME = 1200
+# #     MAXFRAME = 1500
 
 #     try:
 #         stitcher = TrajectoryVideoStitcher(
 #             single_json_path=SINGLE_JSON_PATH,
 #             video_paths=VIDEO_PATHS,
 #             output_root_dir=OUTPUT_ROOT,
-#             start_frame=START_FRAME,
-#             maxframe=MAXFRAME,
+#             start_frame=0,
+#             maxframe=300,
 #             fps=30,
 #             half_court=True
 #         )
 #         video_output_paths = stitcher.batch_generate_stitch_videos()
-#         print(f"\n生成的视频路径：{video_output_paths}")
+#         print(f"\n最终生成的视频路径：{video_output_paths}")
 #     except Exception as e:
 #         print(f"处理出错：{e}")
 #         import traceback

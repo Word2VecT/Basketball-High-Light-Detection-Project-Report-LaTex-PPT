@@ -32,7 +32,7 @@ class TrajectoryMerger:
         json_paths: List[str],
         video_paths: List[str],
         output_root: str,
-        error_threshold: float = 1.0,
+        error_threshold: float = 0.8,
         remain_length_threshold: int = 50,
         court_total_x: float = 15.0,
         court_total_y: float = 28.0,
@@ -547,7 +547,7 @@ class TrajectoryMerger:
             ]:
                 continue
             target_traj_len = self.get_trajectory_length(target_traj_data)
-            if target_traj_len > src_traj_len:
+            if target_traj_len >= src_traj_len:
                 has_longer_unjudged = True
                 break
 

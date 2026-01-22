@@ -17,7 +17,14 @@ dependencies = [
     "vllm",
     "pillow",
     "transformers",
+    "onnxruntime",
+    "accelerate",
 ]
+[tool.hatch.build]
+root = "." 
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/track"]
 
 [build-system]
 requires = ["hatchling"]

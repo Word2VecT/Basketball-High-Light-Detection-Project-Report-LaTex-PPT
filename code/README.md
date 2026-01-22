@@ -20,12 +20,13 @@
 1.  安装依赖：
     ```bash
     uv sync
+    source .venv/bin/activate
     ```
 
 2.  运行流水线：
     在项目根目录下运行：
     ```bash
-    python src/basketball_highlight_detection/pipeline.py
+    HF_ENDPOINT="https://hf-mirror.com" python -m src.track.pipeline
     ```
 
 ## 注意事项

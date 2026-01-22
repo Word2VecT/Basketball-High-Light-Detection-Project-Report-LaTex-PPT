@@ -42,7 +42,7 @@ class TrajectoryReIDVisualizer:
         Args:
             json_paths: 输入的轨迹 JSON 文件路径列表。
             output_dir: 输出目录路径。如果为 None，则默认在输入 JSON 上级目录创建 'traj_reid'。
-            video_path_mapping: 视频文件名到绝对路径的映射字典。
+            video_path_mapping: 视频文件名到绝对路径的映射字典（仅作为full_video_path的兜底）。
             start_frame: 处理起始帧。
             max_process_frames: 最大处理帧数（结束帧）。
             operation_mode: 运行模式，可选 'face', 'qwen', 'siglip'。默认为 'face'。
@@ -71,12 +71,10 @@ class TrajectoryReIDVisualizer:
         )
 
         # ===================== 通用配置（人脸/Qwen共用） =====================
-        self.VIDEO_PATH_MAPPING = video_path_mapping or {
-            "1-3v3_camera1_undistorted.mp4": "/data/ljy23/data/videodata/A1/1-3v3_camera1_undistorted.mp4",
-            "1-3v3_camera2_undistorted.mp4": "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4",
-        }
-        self.REFERENCE_FACES_DIR = "assets/ref"  # 参考图片文件夹（人脸/Qwen共用）
-        self.FACE_DET_MODEL_PATH = "../face_demo/model/yolov9m-face.pt"
+        # 保留映射表作为full_video_path的兜底，不再作为主要路径来源
+        self.VIDEO_PATH_MAPPING = video_path_mapping or {}
+        self.REFERENCE_FACES_DIR = "assets/ref1"  # 参考图片文件夹（人脸/Qwen共用）
+        self.FACE_DET_MODEL_PATH = "/data/ljy23/project/track/face_demo/model/yolov9m-face.pt"
         self.START_FRAME = start_frame
         self.MAX_PROCESS_FRAMES = max_process_frames
         self.FRAME_IDX_OFFSET = 0
@@ -252,15 +250,18 @@ class TrajectoryReIDVisualizer:
 
     def read_video_specific_frame(self, video_path: str, frame_idx: int) -> Optional[np.ndarray]:
         """读取视频指定帧。"""
-        if frame_idx < self.START_FRAME or frame_idx >= self.MAX_PROCESS_FRAMES:
-            return None
+        # 帧范围校验移到调用处，这里只校验路径和帧有效性
         if not os.path.exists(video_path):
+            print(f"视频路径不存在: {video_path} → 跳过")
             return None
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
+            print(f"视频无法打开: {video_path} → 跳过")
+            cap.release()
             return None
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if frame_idx >= total_frames:
+        if frame_idx < 0 or frame_idx >= total_frames:
+            print(f"帧索引{frame_idx}超出视频范围(0~{total_frames-1}): {video_path} → 跳过")
             cap.release()
             return None
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -304,12 +305,6 @@ class TrajectoryReIDVisualizer:
             and all(isinstance(v, (int, float)) for v in box_data)
         ):
             return list(map(int, box_data))
-        if isinstance(box_data, list):
-            for item in box_data:
-                if isinstance(item, dict):
-                    result = self.parse_valid_box(item)
-                    if result is not None:
-                        return result
         return None
 
     def parse_traj_meters(self, frame_info: Dict) -> Optional[Tuple[float, float]]:
@@ -326,7 +321,7 @@ class TrajectoryReIDVisualizer:
     # ===================== 核心方法：加载并合并多JSON轨迹 =====================
 
     def load_valid_merged_trajectories(self) -> Dict[str, Dict[int, Dict]]:
-        """加载并合并所有输入的轨迹 JSON 数据。"""
+        """加载并合并所有输入的轨迹 JSON 数据（核心修改：保存full_video_path）。"""
         all_trajs = {}
         for json_idx, json_path in enumerate(self.json_paths):
             json_data = self.load_json(json_path)
@@ -349,32 +344,41 @@ class TrajectoryReIDVisualizer:
                     continue
                 box_list = frame_info.get("box", [])
                 valid_box = None
-                print(frame_info)
-
+                full_video_path = ""
+                
+                # 遍历box列表，提取有效box和full_video_path
                 for box in box_list:
                     if (valid_box := self.parse_valid_box(box)) is not None:
-                        formatted_traj[frame_num] = {
-                            "box": valid_box,
-                            "video_filename": box.get("video_filename", ""),
-                            "x": frame_info.get("x", 0.0),
-                            "y": frame_info.get("y", 0.0),
-                        }
+                        full_video_path = box.get("full_video_path", "")  # 核心：提取full_video_path
                         break
+
+                if valid_box is None:
+                    continue
+
+                # 保存frame_info：包含full_video_path，不再依赖video_filename映射
+                formatted_traj[frame_num] = {
+                    "box": valid_box,
+                    "full_video_path": full_video_path,  # 核心：保存full_video_path
+                    "x": frame_info.get("x", 0.0),
+                    "y": frame_info.get("y", 0.0),
+                }
 
                 if (meter_point := self.parse_traj_meters(frame_info)) is not None:
                     meter_points.append(meter_point)
+            
             if len(formatted_traj) >= self.MIN_TRAJ_FRAMES:
                 valid_trajs[traj_id] = formatted_traj
             if len(meter_points) > 0:
                 self.traj_meters_mapping[traj_id] = meter_points
+        
         print(f"✅ 合并{len(self.json_paths)}个JSON，有效轨迹数: {len(valid_trajs)}")
         return valid_trajs
 
-    # ===================== 核心修改：分模式匹配逻辑 =====================
+    # ===================== 核心修改：分模式匹配逻辑（优先用full_video_path） =====================
 
     def match_single_traj_to_person(self, traj_id: str, traj_data: Dict[int, Dict]) -> str:
         """
-        匹配单条轨迹到具体球员。
+        匹配单条轨迹到具体球员（核心修改：遍历box列表 + 用full_video_path）。
 
         Args:
             traj_id: 轨迹 ID。
@@ -383,7 +387,7 @@ class TrajectoryReIDVisualizer:
         Returns:
             匹配结果字符串（球员名或状态）。
         """
-        # ---------- FACE 模式 ----------
+        # ---------- FACE模式 ----------
         if self.operation_mode == "face":
             if not self.reference_faces:
                 self.traj_player_mapping[traj_id] = "无参考人脸"
@@ -394,8 +398,18 @@ class TrajectoryReIDVisualizer:
 
             for frame_num in sorted_frames:
                 frame_info = traj_data[frame_num]
-                video_path = self.VIDEO_PATH_MAPPING.get(frame_info["video_filename"], "")
-                frame = self.read_video_specific_frame(video_path, frame_num + self.FRAME_IDX_OFFSET)
+                # 核心修改1：使用full_video_path作为视频路径
+                video_path = frame_info["full_video_path"]
+                # 兜底：如果full_video_path为空，再用映射表（兼容旧数据）
+                if not video_path:
+                    video_path = self.VIDEO_PATH_MAPPING.get(frame_info.get("video_filename", ""), "")
+                
+                # 帧索引校正（移到read方法外，便于日志打印）
+                target_frame_idx = frame_num + self.FRAME_IDX_OFFSET
+                if target_frame_idx < self.START_FRAME or target_frame_idx >= self.MAX_PROCESS_FRAMES:
+                    continue
+                
+                frame = self.read_video_specific_frame(video_path, target_frame_idx)
                 if frame is None:
                     continue
 
@@ -453,8 +467,8 @@ class TrajectoryReIDVisualizer:
             self.traj_player_mapping[traj_id] = best_player if ratio >= self.MATCH_FRAME_RATIO else "未匹配"
             return f"{self.traj_player_mapping[traj_id]} (占比: {ratio:.2%})"
 
-        # ---------- QWEN / SigLIP 模式 ----------
-        elif self.operation_mode == "qwen" or "siglip":
+        # ---------- QWEN / SigLIP 模式（核心修改：修复判断语法 + 用full_video_path） ----------
+        elif self.operation_mode in ["qwen", "siglip"]:  # 核心修改2：修复siglip判断语法
             if len(self.matcher.reference_embeddings) == 0:
                 self.traj_player_mapping[traj_id] = "无参考球员"
                 return "无参考球员"
@@ -465,8 +479,18 @@ class TrajectoryReIDVisualizer:
 
             for frame_num in sorted_frames:
                 frame_info = traj_data[frame_num]
-                video_path = self.VIDEO_PATH_MAPPING.get(frame_info["video_filename"], "")
-                frame = self.read_video_specific_frame(video_path, frame_num + self.FRAME_IDX_OFFSET)
+                # 核心修改3：使用full_video_path作为视频路径
+                video_path = frame_info["full_video_path"]
+                # 兜底：如果full_video_path为空，再用映射表
+                if not video_path:
+                    video_path = self.VIDEO_PATH_MAPPING.get(frame_info.get("video_filename", ""), "")
+                
+                # 帧索引校正
+                target_frame_idx = frame_num + self.FRAME_IDX_OFFSET
+                if target_frame_idx < self.START_FRAME or target_frame_idx >= self.MAX_PROCESS_FRAMES:
+                    continue
+                
+                frame = self.read_video_specific_frame(video_path, target_frame_idx)
                 if frame is None:
                     continue
 
@@ -488,7 +512,7 @@ class TrajectoryReIDVisualizer:
             return "无有效帧"
         best_player, count = max(player_count.items(), key=lambda x: x[1])
         ratio = count / total_frames
-        self.traj_player_mapping[traj_id] = best_player if ratio >= self.MATCH_FRAME_RATIO else "未匹配"
+        self.traj_player_mapping[traj_id] = best_player 
         return f"{self.traj_player_mapping[traj_id]} (占比: {ratio:.2%}, 最高相似度帧: {count}/{total_frames})"
 
     # ===================== 批量匹配 =====================
@@ -649,3 +673,14 @@ class TrajectoryReIDVisualizer:
             "overview_png": self.overview_png_path,
             "output_dir": self.output_dir,
         }
+
+
+# 实例化并运行（保持你的调用逻辑）
+# trv = TrajectoryReIDVisualizer(
+#     json_paths=['/data/ljy23/project/code/pipeline_face/segment_000_frames_0_300/traj_smooth_after_merger/smooth.json'],
+#     output_dir='./pipe',
+#     start_frame=0,
+#     max_process_frames=300,
+#     operation_mode="siglip"
+# )
+# trv.run()
