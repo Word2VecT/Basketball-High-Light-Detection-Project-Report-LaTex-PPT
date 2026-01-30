@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 
 import cv2
 import numpy as np
@@ -26,8 +26,8 @@ class AdaptiveJumpRemover:
         speed_ratio_threshold: float = 4.0,
         frame_rate: int = 30,
         lookback_frames: int = 10,
-        moving_average_window: int = 40,
-        gaussian_sigma: float = 2,
+        moving_average_window: int = 30,
+        gaussian_sigma: float = 1.5,
         court_total_x: float = 15.0,
         court_total_y: float = 28.0,
         scale_ratio: int = 50,
@@ -169,6 +169,8 @@ class AdaptiveJumpRemover:
         return list(zip(xs.tolist(), ys.tolist()))
 
     # --------------------------------------------------
+    # 可视化（核心修改：添加轨迹名称标注）
+    # --------------------------------------------------
 
     def _load_bg(self):
         """加载背景图。"""
@@ -179,12 +181,39 @@ class AdaptiveJumpRemover:
         return np.ones((self.top_view_height, self.top_view_width, 3), np.uint8) * 255
 
     def _vis(self, traj, out_path):
-        """可视化轨迹并保存图片。"""
+        """可视化轨迹并保存图片（添加轨迹名称标注）。"""
         bg = self._load_bg()
-        for data in traj.values():
+        # 定义文字样式：字体、大小、颜色、粗细
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        font_color = (0, 0, 255)  # 红色文字，和绿色轨迹线对比明显
+        font_thickness = 1
+        # 遍历轨迹时同时获取轨迹名称和数据
+        for traj_name, data in traj.items():
+            # 如果是带player_id的结构，需要排除player_id键
+            if "player_id" in data:
+                continue
             pts = [(int(v["x"] * self.scale_ratio), int(v["y"] * self.scale_ratio)) for v in data.values()]
+            if len(pts) < 2:
+                continue  # 跳过过短的轨迹
+            # 绘制轨迹线
             for i in range(len(pts) - 1):
                 cv2.line(bg, pts[i], pts[i + 1], (0, 255, 0), 2)
+            # 标注轨迹名称：在轨迹最后一个点的右侧5像素位置绘制
+            text_x = pts[-1][0] + 5
+            text_y = pts[-1][1] + 5
+            # 防止文字超出图片边界
+            text_x = min(text_x, self.top_view_width - 50)
+            text_y = max(text_y, 20)
+            cv2.putText(
+                bg, 
+                traj_name,  # 轨迹名称
+                (text_x, text_y), 
+                font, 
+                font_scale, 
+                font_color, 
+                font_thickness
+            )
         cv2.imwrite(out_path, bg)
 
     # --------------------------------------------------
@@ -255,7 +284,8 @@ class MergedAdaptiveJumpRemover:
     - 轨迹位置插值
     - 检测框（box）四参数插值
     - 平滑滤波
-    - 俯视图可视化
+    - 俯视图可视化（添加轨迹名称）
+    - 兼容两种JSON结构：纯帧号结构 和 带player_id的结构
     """
 
     def __init__(
@@ -494,7 +524,7 @@ class MergedAdaptiveJumpRemover:
         return list(zip(xs.tolist(), ys.tolist()))
 
     # ==================================================
-    # 可视化
+    # 可视化（核心修改：添加轨迹名称标注）
     # ==================================================
 
     def _load_bg(self):
@@ -506,58 +536,194 @@ class MergedAdaptiveJumpRemover:
         return np.ones((self.top_view_height, self.top_view_width, 3), np.uint8) * 255
 
     def _vis(self, trajectories):
-        """可视化轨迹。"""
+        """可视化轨迹（添加轨迹名称标注）。"""
         if not self.vis_image_path:
             return
 
         bg = self._load_bg()
-        for traj in trajectories.values():
-            pts = [(int(v["x"] * self.scale_ratio), int(v["y"] * self.scale_ratio)) for v in traj.values()]
+        # 定义文字样式
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        font_color = (0, 0, 255)  # 红色文字
+        font_thickness = 1
+        # 遍历轨迹时获取名称和数据
+        for traj_name, traj in trajectories.items():
+            # 跳过player_id等非轨迹数据键
+            if traj_name == "player_id":
+                continue
+            
+            # 如果是带player_id的结构，需要过滤出帧号数据
+            if isinstance(traj, dict) and "player_id" in traj:
+                # 这是带player_id的结构，跳过player_id键
+                frame_data = {k: v for k, v in traj.items() if k != "player_id"}
+            else:
+                # 这是纯帧号结构
+                frame_data = traj
+            
+            pts = [(int(v["x"] * self.scale_ratio), int(v["y"] * self.scale_ratio)) for v in frame_data.values()]
+            if len(pts) < 2:
+                continue
+            
+            # 绘制轨迹线
             for i in range(len(pts) - 1):
                 cv2.line(bg, pts[i], pts[i + 1], (0, 255, 0), 2)
+            
+            # 标注轨迹名称：在轨迹终点右侧绘制，防止越界
+            text_x = pts[-1][0] + 5
+            text_y = pts[-1][1] + 5
+            text_x = min(text_x, self.top_view_width - 50)
+            text_y = max(text_y, 20)
+            cv2.putText(
+                bg,
+                traj_name,
+                (text_x, text_y),
+                font,
+                font_scale,
+                font_color,
+                font_thickness
+            )
         cv2.imwrite(self.vis_image_path, bg)
 
     # ==================================================
-    # 主入口
+    # 辅助方法：判断是否为帧号
+    # ==================================================
+
+    def _is_frame_key(self, key: str) -> bool:
+        """判断一个键是否为帧号（可以转换为整数）。"""
+        try:
+            int(key)
+            return True
+        except ValueError:
+            return False
+
+    # ==================================================
+    # 核心修改：处理两种JSON结构
+    # ==================================================
+
+    def _extract_trajectory_data(self, traj: Dict) -> Tuple[Dict, Optional[str]]:
+        """
+        从轨迹数据中提取帧数据和player_id。
+        
+        Args:
+            traj: 轨迹数据字典
+            
+        Returns:
+            (frame_data, player_id):
+            - frame_data: 帧号到轨迹点的映射字典
+            - player_id: 球员ID，如果没有则为None
+        """
+        frame_data = {}
+        player_id = None
+        
+        for key, value in traj.items():
+            if key == "player_id":
+                player_id = value
+            elif self._is_frame_key(key):
+                frame_data[key] = value
+        
+        return frame_data, player_id
+
+    def _reconstruct_trajectory(self, frame_data: Dict, player_id: Optional[str]) -> Dict:
+        """
+        重建轨迹数据结构，兼容两种格式。
+        
+        Args:
+            frame_data: 平滑后的帧数据
+            player_id: 球员ID（可选）
+            
+        Returns:
+            重建后的轨迹数据
+        """
+        result = dict(frame_data)
+        if player_id is not None:
+            result["player_id"] = player_id
+        return result
+
+    # ==================================================
+    # 主入口（核心修改：支持两种JSON结构）
     # ==================================================
 
     def run(self):
-        """运行平滑流程。"""
+        """运行平滑流程，兼容两种JSON结构。"""
         with open(self.input_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        trajectories = data["final_merged_finished_trajectories"]
+        # 获取轨迹数据
+        trajectories = data.get("final_merged_finished_trajectories", {})
+        if not trajectories:
+            print(f"警告: 未找到final_merged_finished_trajectories字段")
+            trajectories = data
 
+        processed_trajectories = {}
+        
         for name, traj in trajectories.items():
-            frames = sorted(map(int, traj.keys()))
-            points = [(traj[str(f)]["x"], traj[str(f)]["y"]) for f in frames]
-            boxes = [traj[str(f)].get("box") for f in frames]
-            confs = [traj[str(f)].get("confidence") for f in frames]
+            # 提取轨迹数据（兼容两种结构）
+            frame_data, player_id = self._extract_trajectory_data(traj)
+            
+            if not frame_data:
+                print(f"警告: 轨迹 '{name}' 没有帧数据，跳过")
+                continue
+            
+            # 准备平滑数据
+            frames = sorted(map(int, frame_data.keys()))
+            points = [(frame_data[str(f)]["x"], frame_data[str(f)]["y"]) for f in frames]
+            boxes = [frame_data[str(f)].get("box") for f in frames]
+            confs = [frame_data[str(f)].get("confidence") for f in frames]
 
+            # 跳变检测与插值
             points, frames, boxes, confs = self.detect_and_remove_jump(points, frames, boxes, confs)
 
+            # 平滑滤波
             pixel_pts = [(x * self.scale_ratio, y * self.scale_ratio) for x, y in points]
             pixel_pts = self._filter(pixel_pts)
             smooth_pts = [(x / self.scale_ratio, y / self.scale_ratio) for x, y in pixel_pts]
 
-            new_traj = {}
+            # 构建平滑后的帧数据
+            new_frame_data = {}
             for f, (x, y), b, c in zip(frames, smooth_pts, boxes, confs):
+                # 保留原始数据，只更新坐标和置信度
+                original_data = frame_data.get(str(f), {})
                 entry = {
-                    **traj.get(str(f), {}),
+                    **original_data,  # 保留原始所有字段
                     "x": float(x),
                     "y": float(y),
-                    "confidence": float(c) if c is not None else 0.0,
                 }
+                # 如果原始有confidence则更新，否则不添加
+                if c is not None:
+                    entry["confidence"] = float(c)
+                # 如果原始有box则更新插值后的box
                 if b is not None:
                     entry["box"] = b
-                new_traj[str(f)] = entry
+                new_frame_data[str(f)] = entry
 
-            trajectories[name] = new_traj
+            # 重建轨迹结构
+            processed_trajectories[name] = self._reconstruct_trajectory(new_frame_data, player_id)
 
-        self._vis(trajectories)
+        # 更新数据
+        if "final_merged_finished_trajectories" in data:
+            data["final_merged_finished_trajectories"] = processed_trajectories
+        else:
+            data = processed_trajectories
 
+        # 可视化（使用重建后的数据）
+        self._vis(processed_trajectories)
+
+        # 保存结果
         os.makedirs(os.path.dirname(self.output_json_path), exist_ok=True)
         with open(self.output_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
         print(f"[OK] Saved to {self.output_json_path}")
+        return self.output_json_path
+
+
+if __name__ == "__main__":
+    # 示例用法
+    smoother = MergedAdaptiveJumpRemover(
+        input_json_path='/data/ljy23/project/code/pipe_1200_2400/traj_reid/traj_reid/merged_trajectories_with_player_id_1200-1400frames.json',
+        output_json_path='./smooth.json',
+        vis_image_path="./smooth.png",
+        moving_average_window=30,
+        gaussian_sigma=2.0,
+    )
+    final_smooth = smoother.run()
