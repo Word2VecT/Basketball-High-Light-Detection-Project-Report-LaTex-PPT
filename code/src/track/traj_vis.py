@@ -24,13 +24,14 @@ class TrajectoryVideoStitcher:
         start_frame: int = 0,
         maxframe: int = 300,
         time_window_seconds: float = 2.0,
-        fps: int = 25,
+        fps: int = 30,
         court_physical_width: float = 15.0,
         court_physical_height: float = 28.0,
         scale_ratio_m2px: int = 50,
         court_bg_path: str = "assets/court__bg.png",
         interp_points_num: int = 10,
         half_court: bool = True,
+        drop_unmatched: bool = False,  # 新增参数：是否舍弃未匹配的轨迹
     ):
         # ===================== 参数校验 =====================
         if not os.path.exists(single_json_path):
@@ -42,6 +43,7 @@ class TrajectoryVideoStitcher:
         self.main_video_path = video_paths[0]  # 左侧仅用第一个视频
         self.video_paths = video_paths  # 保留原列表（兼容原有变量）
         self.output_root_dir = output_root_dir
+        self.drop_unmatched = drop_unmatched  # 保存参数
 
         # 基础配置
         self.start_frame = start_frame
@@ -59,6 +61,7 @@ class TrajectoryVideoStitcher:
         self.ensure_dir(self.base_output_dir)
         print(f"输出根目录：{self.output_root_dir}")
         print(f"拼接视频保存路径：{self.base_output_dir}")
+        print(f"是否舍弃未匹配轨迹：{'是' if drop_unmatched else '否'}")
 
         # 帧范围校验
         if self.start_frame < 0:
@@ -158,7 +161,7 @@ class TrajectoryVideoStitcher:
         )
         return stitch_width, stitch_height, left_width_scaled, left_scale
 
-    # ===================== 核心方法：加载全局JSON数据（修改3：移除视频来源解析） =====================
+    # ===================== 核心方法：加载全局JSON数据（修改3：添加未匹配轨迹过滤） =====================
     def _load_global_json_data(self) -> None:
         """加载单个JSON的所有轨迹数据（不区分视频来源）"""
         self.global_traj_data.clear()
@@ -172,8 +175,16 @@ class TrajectoryVideoStitcher:
         traj_root = json_data.get("final_merged_finished_trajectories", json_data)
         total_traj_count = 0
         valid_frame_count = 0
+        unmatched_traj_count = 0  # 统计未匹配轨迹数量
 
         for traj_id, traj_info in traj_root.items():
+            player_id = traj_info.get("player_id", "未匹配")
+            
+            # 如果设置为舍弃未匹配轨迹，且当前轨迹未匹配，则跳过
+            if self.drop_unmatched and player_id == "未匹配":
+                unmatched_traj_count += 1
+                continue
+                
             frame_coords = {}
             # 遍历轨迹的每个帧
             for frame_str, frame_info in traj_info.items():
@@ -203,14 +214,14 @@ class TrajectoryVideoStitcher:
             if frame_coords:
                 self.global_traj_data[traj_id] = frame_coords
                 # 提取player_id
-                self.global_player_id_map[traj_id] = traj_info.get(
-                    "player_id", "未匹配"
-                )
+                self.global_player_id_map[traj_id] = player_id
                 total_traj_count += 1
 
         print(
             f"全局JSON加载完成：有效轨迹数={total_traj_count} | 有效帧总数={valid_frame_count}"
         )
+        if self.drop_unmatched:
+            print(f"  舍弃了{unmatched_traj_count}条未匹配轨迹")
         print(f"  总计加载{len(self.global_traj_data)}条轨迹用于右侧绘制")
 
     # ===================== 核心方法：加载所有轨迹数据（修改4：不再按视频筛选） =====================
@@ -218,13 +229,30 @@ class TrajectoryVideoStitcher:
         """加载所有全局轨迹数据（不区分视频来源）"""
         self.traj_data = self.global_traj_data.copy()
         self.player_id_map = self.global_player_id_map.copy()
-        print(f"加载所有轨迹数据：共{len(self.traj_data)}条轨迹")
+        
+        # 统计已匹配轨迹和未匹配轨迹数量
+        matched_count = 0
+        unmatched_count = 0
+        for player_id in self.player_id_map.values():
+            if player_id == "未匹配":
+                unmatched_count += 1
+            else:
+                matched_count += 1
+        
+        print(f"加载轨迹数据：共{len(self.traj_data)}条轨迹")
+        print(f"  已匹配轨迹：{matched_count}条")
+        print(f"  未匹配轨迹：{unmatched_count}条")
 
     # ===================== 绘图相关方法 =====================
     def _init_player_colors(self) -> None:
         """为球员分配颜色"""
         self.player_color_map.clear()
         unique_players = set(self.player_id_map.values())
+        
+        # 如果设置了舍弃未匹配轨迹，则从unique_players中移除"未匹配"
+        if self.drop_unmatched and "未匹配" in unique_players:
+            unique_players.remove("未匹配")
+            
         for player_id in unique_players:
             if player_id != "未匹配" and player_id not in self.player_color_map:
                 self.player_color_map[player_id] = (
@@ -305,6 +333,11 @@ class TrajectoryVideoStitcher:
         frame = self.court_bg.copy()
         for traj_id in self.traj_data.keys():
             player_id = self.player_id_map.get(traj_id, "未匹配")
+            
+            # 如果设置了舍弃未匹配轨迹，且当前轨迹未匹配，则跳过绘制
+            if self.drop_unmatched and player_id == "未匹配":
+                continue
+                
             traj_color = self.player_color_map.get(player_id, self.unmatched_color)
             pixel_points = self._get_traj_points_in_window(traj_id, current_frame)
             if not pixel_points:
@@ -341,9 +374,12 @@ class TrajectoryVideoStitcher:
                     self.FONT_THICKNESS,
                 )
         self._draw_legend_top_left(frame)
+        
+        # 更新标题信息，显示是否过滤未匹配轨迹
+        filter_info = "Filtered (No Unmatched)" if self.drop_unmatched else "All Tracks"
         cv2.putText(
             frame,
-            f"Half Court | Frame: {current_frame} ({self.start_frame}-{self.maxframe})",
+            f"Half Court | Frame: {current_frame} ({self.start_frame}-{self.maxframe}) | {filter_info}",
             (self.LEGEND_MARGIN, self.LEGEND_MARGIN + 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             self.FONT_SCALE,
@@ -375,6 +411,8 @@ class TrajectoryVideoStitcher:
             self.FONT_THICKNESS,
         )
         legend_y += 30
+        
+        # 绘制已匹配球员的图例
         for player_id, color in self.player_color_map.items():
             if (
                 legend_y + self.COLOR_BLOCK_SIZE
@@ -401,25 +439,28 @@ class TrajectoryVideoStitcher:
                 self.FONT_THICKNESS,
             )
             legend_y += self.COLOR_BLOCK_SIZE + 10
-        cv2.rectangle(
-            frame,
-            (legend_x, legend_y),
-            (legend_x + self.COLOR_BLOCK_SIZE, legend_y + self.COLOR_BLOCK_SIZE),
-            self.unmatched_color,
-            -1,
-        )
-        cv2.putText(
-            frame,
-            "Unmatched",
-            (
-                legend_x + self.COLOR_BLOCK_SIZE + 5,
-                legend_y + self.COLOR_BLOCK_SIZE // 2 + 5,
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            self.FONT_SCALE,
-            self.unmatched_color,
-            self.FONT_THICKNESS,
-        )
+            
+        # 只有在没有舍弃未匹配轨迹时才绘制未匹配图例
+        if not self.drop_unmatched and "未匹配" in set(self.player_id_map.values()):
+            cv2.rectangle(
+                frame,
+                (legend_x, legend_y),
+                (legend_x + self.COLOR_BLOCK_SIZE, legend_y + self.COLOR_BLOCK_SIZE),
+                self.unmatched_color,
+                -1,
+            )
+            cv2.putText(
+                frame,
+                "Unmatched",
+                (
+                    legend_x + self.COLOR_BLOCK_SIZE + 5,
+                    legend_y + self.COLOR_BLOCK_SIZE // 2 + 5,
+                ),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                self.FONT_SCALE,
+                self.unmatched_color,
+                self.FONT_THICKNESS,
+            )
 
     def _stitch_frames(
         self,
@@ -464,9 +505,10 @@ class TrajectoryVideoStitcher:
 
             # 4. 构建输出路径
             video_name = os.path.basename(self.main_video_path).replace(".mp4", "")
+            filter_suffix = "_filtered" if self.drop_unmatched else "_all"
             output_video_path = os.path.join(
                 self.base_output_dir,
-                f"{video_name}_stitch_{self.start_frame}-{maxframe}frames_all_tracks.mp4",
+                f"{video_name}_stitch_{self.start_frame}-{maxframe}frames{filter_suffix}.mp4",
             )
 
             # 5. 初始化视频写入器
@@ -524,39 +566,41 @@ class TrajectoryVideoStitcher:
         if video_output_path:
             print(f"成功生成：1个")
             print(f"生成的视频路径：{video_output_path}")
+            print(f"轨迹过滤状态：{'已过滤未匹配轨迹' if self.drop_unmatched else '包含所有轨迹（含未匹配）'}")
         else:
             print(f"成功生成：0个")
         return self.generated_video_paths
 
 
 # # -------------------------- 执行入口（示例） --------------------------
-# if __name__ == "__main__":
+if __name__ == "__main__":
 # #     # 1. 单个ReID JSON路径
 #     SINGLE_JSON_PATH = "./pipe/traj_reid/merged_trajectories_with_player_id_0-300frames.json"
 # #     # 2. 视频路径列表（仅第一个会被使用）
-#     VIDEO_PATHS = [
-#         "/data/ljy23/data/videodata/11.19/A1/A1-1_camera1_undistorted.mp4",
-#         "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4"
-#     ]
+    VIDEO_PATHS = [
+        "/data/ljy23/data/videodata/11.19/A1/A1-1_camera1_undistorted.mp4",
+        "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4"
+    ]
 # #     # 3. 自定义输出根目录
 #     OUTPUT_ROOT = "./my_stitch_output"
 # #     # 4. 帧范围
 # #     START_FRAME = 1200
 # #     MAXFRAME = 1500
 
-#     try:
-#         stitcher = TrajectoryVideoStitcher(
-#             single_json_path=SINGLE_JSON_PATH,
-#             video_paths=VIDEO_PATHS,
-#             output_root_dir=OUTPUT_ROOT,
-#             start_frame=0,
-#             maxframe=300,
-#             fps=30,
-#             half_court=True
-#         )
-#         video_output_paths = stitcher.batch_generate_stitch_videos()
-#         print(f"\n最终生成的视频路径：{video_output_paths}")
-#     except Exception as e:
-#         print(f"处理出错：{e}")
-#         import traceback
-#         traceback.print_exc()
+    try:
+        stitcher = TrajectoryVideoStitcher(
+            single_json_path='/data/ljy23/project/code/output/final_smooth_after_reid/smooth.json',
+            video_paths=VIDEO_PATHS,
+            output_root_dir='./my_stitch_output',
+            start_frame=1200,
+            maxframe=3200,
+            fps=30,
+            half_court=True,
+            drop_unmatched=True  # 设置为True时舍弃未匹配轨迹，False时保留
+        )
+        video_output_paths = stitcher.batch_generate_stitch_videos()
+        print(f"\n最终生成的视频路径：{video_output_paths}")
+    except Exception as e:
+        print(f"处理出错：{e}")
+        import traceback
+        traceback.print_exc()
