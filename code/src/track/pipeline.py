@@ -3,7 +3,7 @@ import os
 
 import cv2
 
-from .traj_combine import SegmentTrajectoryMatcher
+from .traj_combine import SlidingWindowTrajectoryMerger
 from .traj_gen import batch_process_videos
 from .traj_match import SerialTrajectoryMerger
 from .traj_reid import TrajectoryReIDVisualizer
@@ -11,14 +11,14 @@ from .traj_smooth import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 from .traj_vis import TrajectoryVideoStitcher
 
 # ===================== 核心配置 =====================
-OUTPUT_ROOT = "./pipeline_1800frames"  # 根输出目录
-FRAME_INTERVAL = 1800  # 每多少帧处理一次
-OVERLAP_FRAMES = 30  # 片段间重叠帧数（避免轨迹断裂）
+OUTPUT_ROOT = "./output"  # 根输出目录
+FRAME_INTERVAL = 200  # 每多少帧处理
+OVERLAP_FRAMES = 100  # 片段间重叠帧数（避免轨迹断裂）
 FPS = 30  # 视频帧率
-MAX_PROCESS_SEGMENTS = 1  # 最大处理片段数（None 表示处理全部）
-START_VIDEO_FRAME = 0  # 视频起始处理帧
-DISTANCE_THRESHOLD = 1.0  # 空间距离阈值（米）
-
+MAX_PROCESS_SEGMENTS = 19  # 最大处理片段数（None 表示处理全部）
+START_VIDEO_FRAME = 1200  # 视频起始处理帧
+DISTANCE_THRESHOLD = 0.7  # 空间距离阈值（米）
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7,8,9"  # 使用的GPU编号
 # 视频配置列表
 video_configs = [
     {
@@ -135,71 +135,67 @@ def main():
         )
         merger_path = serial_merger.run_serial_fusion()
 
-        second_smoother_path = os.path.join(seg_output_dir, "traj_smooth_after_merger/smooth.json")
-        smoother = MergedAdaptiveJumpRemover(
-            input_json_path=merger_path,
-            output_json_path=second_smoother_path,
-            vis_image_path=os.path.join(seg_output_dir, "traj_smooth_after_merger/smooth.png"),
-            moving_average_window=30,
-            gaussian_sigma=2.0,
-        )
-        smoother.run()
+        # second_smoother_path = os.path.join(seg_output_dir, "traj_smooth_after_merger/smooth.json")
+        # smoother = MergedAdaptiveJumpRemover(
+        #     input_json_path=merger_path['merged_json'],
+        #     output_json_path=second_smoother_path,
+        #     vis_image_path=os.path.join(seg_output_dir, "traj_smooth_after_merger/smooth.png"),
+        #     moving_average_window=30,
+        #     gaussian_sigma=2.0,
+        # )
+        # final_smooth = smoother.run()
+        
 
-        # 9. 轨迹 ReID 可视化
-        print(f"--- 片段 {seg_idx + 1}：轨迹ReID可视化 ---")
-        visualizer = TrajectoryReIDVisualizer(
-            json_paths=[second_smoother_path],
-            start_frame=start_frame,
-            max_process_frames=start_frame + int(process_seconds * FPS),
-            output_dir=seg_output_dir,
-            operation_mode="face",
-        )
-        visualizer.run()
-        reid_paths = visualizer.get_output_paths()
-
-        # 10. 视频拼接
-        print(f"--- 片段 {seg_idx + 1}：视频拼接 ---")
-        stitcher = TrajectoryVideoStitcher(
-            single_json_path=reid_paths["merged_json"],
-            video_paths=[video_configs[i]["INPUT_VIDEO_PATH"] for i in range(len(video_configs))],
-            start_frame=start_frame,
-            maxframe=end_frame,
-            output_root_dir=OUTPUT_ROOT,
-        )
-        stitcher.batch_generate_stitch_videos()
-
-        # 11. 保存片段结果
+        # # 11. 保存片段结果
         seg_result = {
             "segment_idx": seg_idx,
             "start_frame": start_frame,
             "end_frame": end_frame,
             "output_dir": seg_output_dir,
-            "merger_path": merger_path,
-            "reid_paths": reid_paths,
+            "merger_path":merger_path['merged_json'] ,
+            # "reid_paths": reid_paths,
         }
         all_segment_results.append(seg_result)
 
         print(f"===================== 第 {seg_idx + 1} 个片段处理完成 =====================")
-
+    final_json_path = all_segment_results[-1]["merger_path"]
     if len(all_segment_results) > 1:
-        matcher = SegmentTrajectoryMatcher(
-            root_save_dir=OUTPUT_ROOT,
-            save_final_json_path=os.path.join(OUTPUT_ROOT, "final_merged_trajectories.json"),
-        )
-        matcher.load_all_json([
-            all_segment_results[i]["reid_paths"]["merged_json"] for i in range(len(all_segment_results))
-        ])
-        matcher.run_serial_merge()
+            # 初始化拼接器（无需传入任何视频路径）
+            merger = SlidingWindowTrajectoryMerger(
+                all_json_paths=[result["merger_path"] for result in all_segment_results],
+                output_root=OUTPUT_ROOT+"/sliding_window_merge_results",
+            )
 
-        stitcher = TrajectoryVideoStitcher(
-            single_json_path=os.path.join(OUTPUT_ROOT, "final_merged_trajectories.json"),
-            video_paths=[video_configs[i]["INPUT_VIDEO_PATH"] for i in range(len(video_configs))],
-            start_frame=start_frame,
-            maxframe=end_frame,
-            output_root_dir=OUTPUT_ROOT,
-        )
-        stitcher.batch_generate_stitch_videos()
-
-
+            # 执行轨迹片段拼接
+            final_json_path = merger.run_serial_fusion()
+            print(f"\n最终拼接结果已保存至：{final_json_path}")
+           
+            
+    visualizer = TrajectoryReIDVisualizer(
+        json_paths=[final_json_path],
+        start_frame=START_VIDEO_FRAME,
+        max_process_frames=start_frame + int(process_seconds * FPS),
+        output_dir=OUTPUT_ROOT + "/traj_reid",
+        operation_mode="face",
+    )
+    visualizer.run()
+    reid_paths = visualizer.get_output_paths()
+    
+    final_smoother_path = os.path.join(OUTPUT_ROOT, "final_smooth_after_reid/smooth.json")
+    final_smoother = MergedAdaptiveJumpRemover(
+        input_json_path=reid_paths['merged_json'],
+        output_json_path=final_smoother_path,
+        vis_image_path=os.path.join(OUTPUT_ROOT, "final_smooth_after_reid/smooth.png"),
+    )
+    final_path = final_smoother.run()
+   
+    stitcher = TrajectoryVideoStitcher(
+        single_json_path=final_path,
+        video_paths=[video_configs[i]["INPUT_VIDEO_PATH"] for i in range(len(video_configs))],
+        start_frame=START_VIDEO_FRAME,
+        maxframe=end_frame,
+        output_root_dir=OUTPUT_ROOT,
+    )
+    stitcher.batch_generate_stitch_videos()
 if __name__ == "__main__":
     main()
