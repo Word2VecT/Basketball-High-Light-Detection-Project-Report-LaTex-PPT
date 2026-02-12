@@ -720,10 +720,10 @@ class MergedAdaptiveJumpRemover:
 if __name__ == "__main__":
     # 示例用法
     smoother = MergedAdaptiveJumpRemover(
-        input_json_path='/data/ljy23/project/code/pipe_1200_2400/traj_reid/traj_reid/merged_trajectories_with_player_id_1200-1400frames.json',
+        input_json_path='/data/ljy23/project/code/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json',
         output_json_path='./smooth.json',
         vis_image_path="./smooth.png",
-        moving_average_window=30,
+        moving_average_window=20,
         gaussian_sigma=2.0,
     )
     final_smooth = smoother.run()

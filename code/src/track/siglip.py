@@ -113,8 +113,10 @@ class Qwen3VLMatcher:
         try:
             inputs = [{"prompt": self.image_placeholder, "multi_modal_data": {"image": image}}]
             outputs = self.llm.embed(inputs)
+            # print(f"⚙️  获取图片嵌入，输出信息：{outputs}")
             emb = torch.tensor(outputs[0].outputs.embedding)
-            emb_norm = torch.nn.functional.normalize(emb, p=2, dim=1)
+            # print(emb)
+            emb_norm = torch.nn.functional.normalize(emb, p=2, dim=0)
             return emb_norm.cpu().numpy().squeeze()
         except Exception as e:
             print(f"⚠️  计算图片嵌入失败：{e}")
