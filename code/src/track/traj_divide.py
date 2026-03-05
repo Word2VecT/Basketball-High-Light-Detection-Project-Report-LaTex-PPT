@@ -33,6 +33,7 @@ class EnhancedUnmatchedTrajectorySegmenter:
             'matched_segments_extracted': 0,
             'unmatched_segments_created': 0,
             'trajectories_processed': 0,
+            'id_alignment_mismatch_trajectories': 0,
             'invalid_frames_included': 0,
             'multi_id_resolved': 0,
             'single_face_frames': 0,
@@ -101,15 +102,25 @@ class EnhancedUnmatchedTrajectorySegmenter:
         
         frame_data = frames_data[frame_str]
         all_player_ids = set()
+
+        # 结构1：帧内直接包含 player_ids
+        if isinstance(frame_data, dict) and 'player_ids' in frame_data and isinstance(frame_data['player_ids'], list):
+            all_player_ids.update(frame_data['player_ids'])
+
+        # 结构2：带 views 层级
+        if isinstance(frame_data, dict) and 'views' in frame_data and isinstance(frame_data['views'], dict):
+            for view_info in frame_data['views'].values():
+                if isinstance(view_info, dict) and 'player_ids' in view_info and view_info['player_ids']:
+                    all_player_ids.update(view_info['player_ids'])
         
-        # 收集所有视角的ID
-        for view_name, view_info in frame_data.items():
-            if not isinstance(view_info, dict):
-                continue
-                
-            if 'player_ids' in view_info and view_info['player_ids']:
-                current_ids = set(view_info['player_ids'])
-                all_player_ids.update(current_ids)
+        # 结构3：直接以视角名为键
+        if isinstance(frame_data, dict):
+            for view_info in frame_data.values():
+                if not isinstance(view_info, dict):
+                    continue
+
+                if 'player_ids' in view_info and view_info['player_ids']:
+                    all_player_ids.update(view_info['player_ids'])
         
         result_ids = list(all_player_ids)
         
@@ -123,6 +134,27 @@ class EnhancedUnmatchedTrajectorySegmenter:
             self.stats['multi_view_conflicts'] += 1
         
         return result_ids
+
+    def get_id_frame_overlap_stats(self, traj_name, traj_frames):
+        """统计轨迹帧与ID帧的重叠情况，用于诊断输入错配。"""
+        if traj_name not in self.frame_id_data:
+            return 0, 0, None, None
+
+        id_frames_data = self.frame_id_data[traj_name].get('frames', {})
+        id_frames = []
+        for k in id_frames_data.keys():
+            try:
+                id_frames.append(int(k))
+            except (TypeError, ValueError):
+                continue
+
+        if not id_frames:
+            return 0, 0, None, None
+
+        traj_set = set(traj_frames)
+        id_set = set(id_frames)
+        overlap = len(traj_set & id_set)
+        return overlap, len(id_set), min(id_frames), max(id_frames)
     
     def _log_multi_id_frame(self, traj_name, frame_num, ids):
         """记录多ID帧的详细信息"""
@@ -350,53 +382,64 @@ class EnhancedUnmatchedTrajectorySegmenter:
                 log_file.write(f"{indent}  未找到符合条件的ID段\n")
             return [], [frames]
         
-        # 找到最佳分割点
-        best_segment = self.find_best_segment_for_split(id_segments, log_file)
+        # 找到所有可用于分割的高质量段（支持同一段内多个高占比ID）
+        candidate_segments = self.find_segments_for_split(id_segments, log_file)
         
-        if not best_segment:
+        if not candidate_segments:
             if log_file:
                 log_file.write(f"{indent}  未找到足够好的分割点\n")
             return [], [frames]
-        
-        target_id, segment_info = best_segment
-        seg_frames = segment_info['frames']
-        start_frame = min(seg_frames)
-        end_frame = max(seg_frames)
-        
+
         if log_file:
-            log_file.write(f"{indent}  找到最佳分割点: ID {target_id}, "
-                          f"原始帧范围 {start_frame}-{end_frame}, "
-                          f"长度 {len(seg_frames)}帧, 占比 {segment_info['ratio']:.2%}\n")
-        
-        # 扩展段以包含两侧的特殊帧
-        extended_frames, left_ext, right_ext = self.extend_segment_to_special_frames(
-            traj_name, seg_frames, target_id, frames)
-        
-        if log_file and (left_ext > 0 or right_ext > 0):
-            log_file.write(f"{indent}  扩展段: 向左{left_ext}帧, 向右{right_ext}帧, "
-                          f"新范围 {min(extended_frames)}-{max(extended_frames)}\n")
-        
-        # 分割轨迹（基于扩展后的段）
-        before_frames = [f for f in frames if f < min(extended_frames)]
-        after_frames = [f for f in frames if f > max(extended_frames)]
-        
-        # 递归处理前后部分
-        matched_before, unmatched_before = self.analyze_and_segment(
-            traj_name, before_frames, depth + 1, log_file)
-        matched_after, unmatched_after = self.analyze_and_segment(
-            traj_name, after_frames, depth + 1, log_file)
-        
-        # 合并结果，记录原始范围信息
+            log_file.write(f"{indent}  找到 {len(candidate_segments)} 个高质量分割段\n")
+
         all_matched = []
-        for matched_seg in matched_before + [(target_id, extended_frames, (start_frame, end_frame))] + matched_after:
-            if matched_seg[1]:  # 检查帧列表是否非空
-                all_matched.append(matched_seg)
-        
+        covered_frames = set()
+
+        # 对每个候选段分别扩展并作为独立轨迹段输出
+        for target_id, segment_info in candidate_segments:
+            seg_frames = segment_info['frames']
+            if not seg_frames:
+                continue
+
+            start_frame = min(seg_frames)
+            end_frame = max(seg_frames)
+            if log_file:
+                log_file.write(
+                    f"{indent}  分割段: ID {target_id}, 原始帧范围 {start_frame}-{end_frame}, "
+                    f"长度 {len(seg_frames)}帧, 占比 {segment_info['ratio']:.2%}\n"
+                )
+
+            extended_frames, left_ext, right_ext = self.extend_segment_to_special_frames(
+                traj_name, seg_frames, target_id, frames
+            )
+
+            if not extended_frames:
+                continue
+
+            if log_file and (left_ext > 0 or right_ext > 0):
+                log_file.write(
+                    f"{indent}  扩展段(ID {target_id}): 向左{left_ext}帧, 向右{right_ext}帧, "
+                    f"新范围 {min(extended_frames)}-{max(extended_frames)}\n"
+                )
+
+            all_matched.append((target_id, extended_frames, (start_frame, end_frame)))
+            covered_frames.update(extended_frames)
+
+        # 对未被任何匹配段覆盖的帧继续递归，避免漏分割
+        remaining_frames = [f for f in frames if f not in covered_frames]
         all_unmatched = []
-        for unmatched_seg in unmatched_before + unmatched_after:
-            if unmatched_seg:  # 检查帧列表是否非空
-                all_unmatched.append(unmatched_seg)
-        
+        if remaining_frames:
+            remaining_segments = self.segment_frames(remaining_frames)
+            for rem_seg in remaining_segments:
+                if not rem_seg:
+                    continue
+                matched_rem, unmatched_rem = self.analyze_and_segment(
+                    traj_name, rem_seg, depth + 1, log_file
+                )
+                all_matched.extend([m for m in matched_rem if m and m[1]])
+                all_unmatched.extend([u for u in unmatched_rem if u])
+
         return all_matched, all_unmatched
     
     def analyze_id_distribution_simplified(self, traj_name, frames, log_file=None):
@@ -461,7 +504,7 @@ class EnhancedUnmatchedTrajectorySegmenter:
                         segment_quality = self.analyze_segment_quality_for_id(
                             traj_name, seg_frames, target_id)
                         
-                        if segment_quality and segment_quality['ratio'] >= self.threshold:
+                        if segment_quality and segment_quality['ratio'] > self.threshold:
                             qualified_segments.append(segment_quality)
                             if log_file:
                                 log_file.write(f"    段 {seg_frames[0]}-{seg_frames[-1]}: "
@@ -532,40 +575,37 @@ class EnhancedUnmatchedTrajectorySegmenter:
             segments.append(current_segment)
         return segments
     
-    def find_best_segment_for_split(self, id_segments, log_file=None):
-        """找到最佳的分割段"""
-        best_id = None
-        best_segment = None
-        best_score = -1
-        
+    def find_segments_for_split(self, id_segments, log_file=None):
+        """找到所有可用于分割的高质量段（按分数排序）。"""
+        candidates = []
+
         for target_id, id_data in id_segments.items():
             for segment in id_data['segments']:
-                # 检查段是否为空
                 if not segment['frames']:
                     continue
-                    
-                # 评分：考虑ID帧数、占比和段长度
+
                 length_weight = np.log(segment['length'] + 1)
                 id_ratio_weight = segment['ratio']
-                
-                # 优先选择长段和高占比
                 score = segment['length'] * id_ratio_weight * length_weight
-                
+
                 if log_file:
-                    log_file.write(f"  ID {target_id} 段 {segment['start_frame']}-{segment['end_frame']}: "
-                                  f"长度 {segment['length']}, 占比 {segment['ratio']:.2%}, "
-                                  f"分数 {score:.2f}\n")
-                
-                if score > best_score:
-                    best_score = score
-                    best_id = target_id
-                    best_segment = segment
-        
-        if best_id and best_segment:
-            if log_file:
-                log_file.write(f"  选择最佳: ID {best_id}, 分数 {best_score:.2f}\n")
-            return best_id, best_segment
-        return None
+                    log_file.write(
+                        f"  ID {target_id} 段 {segment['start_frame']}-{segment['end_frame']}: "
+                        f"长度 {segment['length']}, 占比 {segment['ratio']:.2%}, 分数 {score:.2f}\n"
+                    )
+
+                candidates.append((target_id, segment, score))
+
+        if not candidates:
+            return []
+
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        selected = [(target_id, segment) for target_id, segment, _ in candidates]
+
+        if log_file:
+            log_file.write(f"  选择全部高质量段: {len(selected)} 个\n")
+
+        return selected
     
     def process_all_trajectories(self):
         """处理所有轨迹"""
@@ -608,6 +648,21 @@ class EnhancedUnmatchedTrajectorySegmenter:
                 continue
             
             log_file.write(f"  总帧数: {len(frames)}, 帧范围: {min(frames)}-{max(frames)}\n")
+
+            # 检查轨迹帧与ID帧是否对齐
+            overlap_count, id_frame_count, id_min_frame, id_max_frame = self.get_id_frame_overlap_stats(traj_name, frames)
+            if id_frame_count == 0:
+                log_file.write("  ⚠️ 未找到该轨迹的有效ID帧数据\n")
+            elif overlap_count == 0:
+                self.stats['id_alignment_mismatch_trajectories'] += 1
+                log_file.write(
+                    f"  ⚠️ 轨迹帧与ID帧无交集: 轨迹[{min(frames)}-{max(frames)}], "
+                    f"ID[{id_min_frame}-{id_max_frame}]\n"
+                )
+            else:
+                log_file.write(
+                    f"  ID帧重叠: {overlap_count}/{len(frames)} (ID帧范围 {id_min_frame}-{id_max_frame})\n"
+                )
             
             # 分析多ID帧情况
             multi_id_count = self.analyze_multi_id_frames(traj_name, frames, multi_id_stats_file)
@@ -627,6 +682,7 @@ class EnhancedUnmatchedTrajectorySegmenter:
                 if seg_frames and len(seg_frames) == len(frames):
                     # 整个轨迹作为一个未匹配段，保留原始轨迹
                     self.create_original_trajectory(traj_name, original_id, final_trajectories)
+                    self.stats['trajectories_processed'] += 1
                     continue
             
             # 创建新轨迹
@@ -967,6 +1023,7 @@ class EnhancedUnmatchedTrajectorySegmenter:
             f.write(f"  创建的未匹配段数: {self.stats['unmatched_segments_created']}\n")
             f.write(f"  扩展的段数: {self.stats['extended_segments_count']}\n")
             f.write(f"  扩展的总帧数: {self.stats['extended_frames_count']}\n")
+            f.write(f"  帧对齐异常轨迹数: {self.stats['id_alignment_mismatch_trajectories']}\n")
             
             if self.stats['total_analyzed_frames'] > 0:
                 multi_id_ratio = self.stats['multi_id_frames'] / self.stats['total_analyzed_frames']

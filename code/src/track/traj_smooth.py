@@ -147,11 +147,13 @@ class AdaptiveJumpRemover:
 
         if self.moving_average_window > 1 and n >= self.moving_average_window:
             half = self.moving_average_window // 2
+            xs_src = xs.copy()
+            ys_src = ys.copy()
             for i in range(n):
                 left_idx = max(0, i - half)
                 r = min(n, i + half + 1)
-                xs[i] = xs[left_idx:r].mean()
-                ys[i] = ys[left_idx:r].mean()
+                xs[i] = xs_src[left_idx:r].mean()
+                ys[i] = ys_src[left_idx:r].mean()
 
         if self.gaussian_sigma > 0:
             radius = int(3 * self.gaussian_sigma)
@@ -297,6 +299,7 @@ class MergedAdaptiveJumpRemover:
         speed_ratio_threshold: float = 4.0,
         frame_rate: int = 30,
         lookback_frames: int = 10,
+        max_repair_gap_frames: int = 45,
         moving_average_window: int = 40,
         gaussian_sigma: float = 2.0,
         court_total_x: float = 15.0,
@@ -315,6 +318,7 @@ class MergedAdaptiveJumpRemover:
             speed_ratio_threshold: 速度比率阈值。
             frame_rate: 帧率。
             lookback_frames: 回溯帧数。
+            max_repair_gap_frames: 单次跳变修复允许的最大帧跨度（超过则不插值修复）。
             moving_average_window: 移动平均窗口大小。
             gaussian_sigma: 高斯平滑 sigma。
             court_total_x: 球场长度。
@@ -330,6 +334,7 @@ class MergedAdaptiveJumpRemover:
         self.speed_ratio_threshold = speed_ratio_threshold
         self.frame_rate = frame_rate
         self.lookback_frames = lookback_frames
+        self.max_repair_gap_frames = max(1, int(max_repair_gap_frames))
         self.moving_average_window = moving_average_window
         self.gaussian_sigma = gaussian_sigma
 
@@ -422,8 +427,11 @@ class MergedAdaptiveJumpRemover:
 
             start, jump = i, i + 1
             reasonable = None
+            max_end_frame = frames[start] + self.max_repair_gap_frames
 
             for j in range(jump + 1, len(points)):
+                if frames[j] > max_end_frame:
+                    break
                 total_dist = np.linalg.norm(np.array(points[j]) - np.array(points[start]))
                 total_frames = frames[j] - frames[start]
                 if total_frames <= 0:
@@ -433,7 +441,7 @@ class MergedAdaptiveJumpRemover:
                     reasonable = j
                     break
 
-            if reasonable is not None:
+            if reasonable is not None and (frames[reasonable] - frames[start]) <= self.max_repair_gap_frames:
                 points, frames, boxes, confs = self._interpolate(points, frames, boxes, confs, start, reasonable)
                 i = reasonable
             else:
@@ -502,11 +510,13 @@ class MergedAdaptiveJumpRemover:
 
         if self.moving_average_window > 1 and n >= self.moving_average_window:
             half = self.moving_average_window // 2
+            xs_src = xs.copy()
+            ys_src = ys.copy()
             for i in range(n):
                 left_idx = max(0, i - half)
                 r = min(n, i + half + 1)
-                xs[i] = xs[left_idx:r].mean()
-                ys[i] = ys[left_idx:r].mean()
+                xs[i] = xs_src[left_idx:r].mean()
+                ys[i] = ys_src[left_idx:r].mean()
 
         if self.gaussian_sigma > 0:
             radius = int(3 * self.gaussian_sigma)
@@ -720,10 +730,10 @@ class MergedAdaptiveJumpRemover:
 if __name__ == "__main__":
     # 示例用法
     smoother = MergedAdaptiveJumpRemover(
-        input_json_path='/data/ljy23/project/code/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json',
+        input_json_path='/data/ljy23/project/code/src/track/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json',
         output_json_path='./smooth.json',
         vis_image_path="./smooth.png",
         moving_average_window=20,
-        gaussian_sigma=2.0,
+        gaussian_sigma=1.0,
     )
     final_smooth = smoother.run()

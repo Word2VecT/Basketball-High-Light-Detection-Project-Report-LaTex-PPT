@@ -48,7 +48,7 @@ class TrajectoryVideoStitcher:
         court_physical_width: float = 15.0,
         court_physical_height: float = 28.0,
         scale_ratio_m2px: int = 50,
-        court_bg_path: str = "assets/court__bg.png",
+        court_bg_path: str = "../../assets/court__bg.png",
         interp_points_num: int = 10,
         half_court: bool = True,
         drop_unmatched: bool = False,
@@ -826,11 +826,11 @@ if __name__ == "__main__":
         
         # 初始化拼接器，开启多帧断帧补齐
         stitcher = TrajectoryVideoStitcher(
-            single_json_path='./smooth.json',
+            single_json_path='/data/ljy23/project/code/src/track/smooth.json',
             video_paths=VIDEO_PATHS,
-            output_root_dir='./fill_missing_frames_output',
-            start_frame=3200,
-            maxframe=5200,
+            output_root_dir='./debug',
+            start_frame=1500,
+            maxframe=2500,
             fps=30,
             half_court=True,
             drop_unmatched=False,

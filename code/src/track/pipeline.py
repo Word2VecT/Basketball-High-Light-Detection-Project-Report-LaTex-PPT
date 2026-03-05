@@ -11,11 +11,11 @@ from .traj_smooth import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 from .traj_vis import TrajectoryVideoStitcher
 from .traj_refine import refine_pipe
 # ===================== 核心配置 =====================
-OUTPUT_ROOT = "./test"  # 根输出目录
+OUTPUT_ROOT = "./test1"  # 根输出目录
 FRAME_INTERVAL = 200  # 每多少帧处理
 OVERLAP_FRAMES = 100  # 片段间重叠帧数（避免轨迹断裂）
 FPS = 30  # 视频帧率
-MAX_PROCESS_SEGMENTS = 19  # 最大处理片段数（None 表示处理全部）
+MAX_PROCESS_SEGMENTS = 6  # 最大处理片段数（None 表示处理全部）
 START_VIDEO_FRAME = 3200  # 视频起始处理帧
 DISTANCE_THRESHOLD = 0.7  # 空间距离阈值（米）
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7,8,9"  # 使用的GPU编号

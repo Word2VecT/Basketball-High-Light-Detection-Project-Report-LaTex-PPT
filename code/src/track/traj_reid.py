@@ -192,7 +192,7 @@ class TrajectoryReIDVisualizer:
             # Face模式：原逻辑
             self.face_det_model = YOLO(self.FACE_DET_MODEL_PATH)
             self.face_analyzer = insightface.app.FaceAnalysis(allowed_modules=["detection", "recognition"])
-            self.face_analyzer.prepare(ctx_id=-1)
+            self.face_analyzer.prepare(ctx_id=0)
             self.reference_faces = self.load_reference_faces()
             print(f"✅ Face模式：加载参考人脸数 {len(self.reference_faces)}")
             print(f"✅ Face模式：人脸检测模式: {self.FACE_DETECTION_MODE}")
