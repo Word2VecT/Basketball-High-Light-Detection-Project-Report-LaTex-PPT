@@ -1,0 +1,90 @@
+\documentclass[tikz,border=2pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds}
+\usepackage{ctex}
+
+\begin{document}
+\begin{tikzpicture}[
+  % 定义样式
+  viewbox/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!20, 
+    minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+  procbox/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!15, 
+    minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize, align=center},
+  fusebox/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!20, 
+    minimum width=1.5cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+  outbox/.style={rectangle, rounded corners=3pt, draw=green!70!black, fill=green!20, 
+    minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+  arrow/.style={-{Stealth[length=1.8mm]}, semithick, draw=gray!70},
+  groupbox/.style={draw=gray!40, dashed, rounded corners=4pt, inner sep=3pt},
+  scale=0.82, transform shape
+]
+  % 视角输入
+  \node[viewbox] (v1) at (0, 1.1) {视角 1};
+  \node[viewbox] (v2) at (0, 0) {视角 2};
+  \node[viewbox] (v3) at (0, -1.1) {视角 3};
+  
+  % 单视角处理
+  \node[procbox] (t1) at (1.9, 1.1) {追踪+ReID};
+  \node[procbox] (t2) at (1.9, 0) {追踪+ReID};
+  \node[procbox] (t3) at (1.9, -1.1) {追踪+ReID};
+  
+  % 单应性映射
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h1) at (3.5, 1.1) {$H_1$};
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h2) at (3.5, 0) {$H_2$};
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h3) at (3.5, -1.1) {$H_3$};
+  
+  % 融合模块
+  \node[fusebox] (hungarian) at (5.3, 0) {匈牙利\\匹配};
+  \node[fusebox, fill=red!15, draw=red!70!black] (fusion) at (7.2, 0) {位置融合\\加权平均};
+  \node[fusebox, fill=yellow!25, draw=yellow!70!black] (interp) at (9.1, 0) {差值优化\\去异常};
+  
+  % 逆映射
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih1) at (10.7, 1.1) {$H_1^{-1}$};
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih2) at (10.7, 0) {$H_2^{-1}$};
+  \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih3) at (10.7, -1.1) {$H_3^{-1}$};
+  
+  % 输出
+  \node[outbox] (o1) at (12.3, 1.1) {输出 1};
+  \node[outbox] (o2) at (12.3, 0) {输出 2};
+  \node[outbox] (o3) at (12.3, -1.1) {输出 3};
+  
+  % 连接箭头 - 输入到追踪
+  \draw[arrow] (v1) -- (t1);
+  \draw[arrow] (v2) -- (t2);
+  \draw[arrow] (v3) -- (t3);
+  
+  % 追踪到单应性
+  \draw[arrow] (t1) -- (h1);
+  \draw[arrow] (t2) -- (h2);
+  \draw[arrow] (t3) -- (h3);
+  
+  % 单应性到匈牙利
+  \draw[arrow] (h1.east) -- ++(0.25,0) |- (hungarian.west);
+  \draw[arrow] (h2) -- (hungarian);
+  \draw[arrow] (h3.east) -- ++(0.25,0) |- (hungarian.west);
+  
+  % 融合流程
+  \draw[arrow] (hungarian) -- (fusion);
+  \draw[arrow] (fusion) -- (interp);
+  
+  % 差值到逆映射
+  \draw[arrow] (interp.east) -- ++(0.25,0) |- (ih1.west);
+  \draw[arrow] (interp) -- (ih2);
+  \draw[arrow] (interp.east) -- ++(0.25,0) |- (ih3.west);
+  
+  % 逆映射到输出
+  \draw[arrow] (ih1) -- (o1);
+  \draw[arrow] (ih2) -- (o2);
+  \draw[arrow] (ih3) -- (o3);
+  
+  % 分组框
+  \begin{scope}[on background layer]
+    \node[groupbox, fill=teal!5, fit=(v1)(v2)(v3), label={[font=\tiny\color{teal!70!black}]above:多视角输入}] {};
+    \node[groupbox, fill=blue!5, fit=(t1)(t2)(t3), label={[font=\tiny\color{blue!70!black}]above:单视角处理}] {};
+    \node[groupbox, fill=purple!5, fit=(h1)(h2)(h3), label={[font=\tiny\color{purple!70!black}]above:映射}] {};
+    \node[groupbox, fill=orange!5, fit=(hungarian)(fusion)(interp), label={[font=\tiny\color{orange!70!black}]above:Late Fusion}] {};
+    \node[groupbox, fill=purple!5, fit=(ih1)(ih2)(ih3), label={[font=\tiny\color{purple!70!black}]above:反映射}] {};
+    \node[groupbox, fill=green!5, fit=(o1)(o2)(o3), label={[font=\tiny\color{green!70!black}]above:输出}] {};
+  \end{scope}
+\end{tikzpicture}
+\end{document}

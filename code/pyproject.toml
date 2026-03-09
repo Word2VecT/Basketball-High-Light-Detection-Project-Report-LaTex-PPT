@@ -1,7 +1,7 @@
 [project]
-name = "basketball-highlight-detection"
+name = "HAR"
 version = "0.1.0"
-description = "Basketball highlight detection pipeline"
+description = "Human Action Recognition"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

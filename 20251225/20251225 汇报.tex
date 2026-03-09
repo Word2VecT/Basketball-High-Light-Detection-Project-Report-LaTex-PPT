@@ -1,0 +1,309 @@
+\documentclass{ctexbeamer}
+
+% 使用 <thubeamer> 主题
+% 模板选项如下
+% (a.1) smoothbars: 页面顶端单行显示目录，默认选项
+\usetheme[sectiontoc]{thubeamer}
+
+\usepackage{media9}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage{animate}
+\lstnewenvironment{textcode}{
+  \lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    frame=single,
+    numbersep=2pt,
+    xleftmargin=0.5em,
+    framesep=1mm
+  }
+}{}
+
+
+% (a.2) sidebar: 页面左侧分栏显示目录
+% \usetheme[sidebar]{thubeamer}
+
+% (b) sectiontoc: 在每节（section）前显示目录，并高亮显示当前节，默认不显示
+
+% (c) subsectiontoc: 在每小节（subsection）前显示目录，并高亮显示当前节和当前小节，默认不显示
+
+% (d) en: 仅使用英文来制作 beamer，应用此选项后，汉字将全部无法编译
+
+% 图片存放路径
+
+\graphicspath{{figures/}}
+
+\include{macros}
+
+% 封面信息，方括号内容是显示在左侧边栏的内容（当选择 sidebar 主题时有效）
+\title[篮球高光检测]{篮球高光检测项目\\[2mm] 汇报}
+\author[唐梓楠]{牛衍昌\\鲁继元\\唐梓楠\\[5mm] 导师：黄必清教授}
+\institute[清华大学]{\small 清华大学}
+\date{\small \vskip -10pt \today}
+
+% 开始写文章
+\begin{document}
+
+% 标题页
+\begin{frame}
+  \maketitle
+\end{frame}
+
+% 目录页
+
+\begin{frame}{过去存在的问题}
+  \begin{itemize}
+    \item 人脸存在遮挡，由于视角原因有时候会看不见，且有时候会较为模糊，占据整个人的面积较小
+    \item Yolo12x 本身的轨迹追踪会出现少量的错误
+    \item 单视角下球员重叠再分开会出现很多细碎的小片段，且 ReID 无法完全解决
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{优化方案一：使用 SigLip2~\cite{tschannen2025siglip2multilingualvisionlanguage} ViT 代替人脸识别模型}
+  针对人脸存在的问题，尝试使用 \textbf{SigLip2 替代人脸模型}，利用 ViT 输出的整个追踪框之间的 embedding 相似度代替原来的人脸相似度。
+  
+  \begin{block}{优点}
+    \begin{itemize}
+      \item 结合了 MLLM，利用 ViT 具有的 ``图像-文本'' 知识
+      \item 可以利用整个追踪框的信息，而不仅限于人脸，消除人脸依赖，就算人脸不出现，可以通过衣服的相似度之类的信息判断
+    \end{itemize}
+  \end{block}
+
+  \textbf{消融实验：}在 DINOv3~\cite{siméoni2025dinov3}、CLIP~\cite{radford2021learningtransferablevisualmodels}、InternViT~\cite{10656429}、AIMv2~\cite{fini2024multimodalautoregressivepretraininglarge}、SigLip2 上进行了对比测试，SigLip2 的\textbf{效果更好，区分度更大}。
+\end{frame}
+
+\begin{frame}{优化方案二：利用 Late Fusion Pipeline 统一多视角}
+  针对单视角的遮挡问题，细碎片段问题，以及 Yolo12x 本身的轨迹追踪错误，使用多视角+单应性矩阵+匈牙利算法匹配优化，并提出了一种 \textbf{Late Fusion} 思路的 Pipeline。
+\end{frame}
+
+\begin{frame}{单应性矩阵 (Homography)}
+  \small % 缩小整体字体
+  \begin{itemize}
+    \setlength{\itemsep}{0.5em} % 调整列表项间距
+    \item \textbf{定义}：单应性矩阵 $H$ 是一个 $3 \times 3$ 的矩阵，用于描述两个平面之间的透视变换关系（例如图像平面与篮球场平面）。
+    \item \textbf{变换公式}：
+      $$ \begin{bmatrix} u \\ v \\ 1 \end{bmatrix} \sim H \begin{bmatrix} X \\ Y \\ 1 \end{bmatrix}, \quad (u,v)\text{为图像坐标}, (X,Y)\text{为球场坐标} $$
+    \item \textbf{与相机参数的关系}：
+      相机成像模型为 $p = K [R | t] P$。假设物体位于 $Z=0$ 的平面上，则：
+      $$ p = K \begin{bmatrix} r_1 & r_2 & r_3 & t \end{bmatrix} \begin{bmatrix} X \\ Y \\ 0 \\ 1 \end{bmatrix} = K \begin{bmatrix} r_1 & r_2 & t \end{bmatrix} \begin{bmatrix} X \\ Y \\ 1 \end{bmatrix} = H P_{\text{plane}} $$
+      \vspace{-0.5em} % 减少间距
+      \begin{itemize}
+        \item $K$：相机\textbf{内参}（焦距、主点等）
+        \item $R, t$：相机\textbf{外参}（旋转、平移）
+        \item $H = K \begin{bmatrix} r_1 & r_2 & t \end{bmatrix}$ 融合了内参和部分外参信息
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{四点对应法求解单应性矩阵}
+  \centering
+  \begin{tikzpicture}[
+    scale=0.9, transform shape,
+    redpoint/.style={circle, fill=red!80!black, inner sep=2pt},
+    greenpoint/.style={circle, fill=green!60!black, inner sep=2pt},
+    orangepoint/.style={circle, fill=orange!80!black, inner sep=2pt},
+    purplepoint/.style={circle, fill=purple!80!black, inner sep=2pt},
+    label/.style={font=\scriptsize},
+  ]
+    % 左侧：图像平面（透视视角）
+    \begin{scope}[shift={(-4,0)}]
+      % 画一个透视变形的四边形表示图像
+      \draw[thick, fill=blue!10, rounded corners=2pt] 
+        (-1.8, -1.2) -- (1.8, -1.2) -- (2.2, 1.5) -- (-2.2, 1.5) -- cycle;
+      \node[font=\small\bfseries, color=blue!70!black] at (0, 1.9) {图像平面};
+      
+      % 四个对应点（透视变形位置）
+      \node[redpoint] (p1) at (-1.4, -0.8) {};
+      \node[greenpoint] (p2) at (1.2, -0.7) {};
+      \node[orangepoint] (p3) at (1.6, 1.0) {};
+      \node[purplepoint] (p4) at (-1.6, 0.9) {};
+      
+      % 点标签
+      \node[label, below left] at (p1) {$p_1$};
+      \node[label, below right] at (p2) {$p_2$};
+      \node[label, above right] at (p3) {$p_3$};
+      \node[label, above left] at (p4) {$p_4$};
+      
+      % 连接四个点形成四边形
+      \draw[dashed, gray] (p1.center) -- (p2.center) -- (p3.center) -- (p4.center) -- cycle;
+    \end{scope}
+    
+    % 中间：单应性矩阵和箭头
+    \node[font=\large\bfseries, color=purple!70!black] at (0, 0.3) {$H$};
+    \draw[-{Stealth[length=3mm]}, very thick, color=purple!60!black] (-1.2, 0) -- (1.2, 0);
+    \node[font=\scriptsize, color=gray] at (0, -0.4) {单应性变换};
+    
+    % 右侧：篮球场平面（俯视图）
+    \begin{scope}[shift={(4,0)}]
+      % 画一个矩形表示球场
+      \draw[thick, fill=green!15, rounded corners=2pt] 
+        (-2, -1.3) rectangle (2, 1.3);
+      \node[font=\small\bfseries, color=green!50!black] at (0, 1.7) {球场平面};
+      
+      % 球场标线
+      \draw[white, line width=2pt] (-2, 0) -- (2, 0);
+      \draw[white, line width=2pt] (0, -1.3) -- (0, 1.3);
+      \draw[white, line width=2pt] (-1.5, -0.8) rectangle (1.5, 0.8);
+      
+      % 四个对应点（矩形位置）
+      \node[redpoint] (q1) at (-1.5, -0.8) {};
+      \node[greenpoint] (q2) at (1.5, -0.8) {};
+      \node[orangepoint] (q3) at (1.5, 0.8) {};
+      \node[purplepoint] (q4) at (-1.5, 0.8) {};
+      
+      % 点标签
+      \node[label, below left] at (q1) {$P_1$};
+      \node[label, below right] at (q2) {$P_2$};
+      \node[label, above right] at (q3) {$P_3$};
+      \node[label, above left] at (q4) {$P_4$};
+    \end{scope}
+    
+    % 点对应的虚线连接
+    \draw[dashed, red!50, thin] (p1) to[out=0, in=180] (q1);
+    \draw[dashed, green!50!black, thin] (p2) to[out=0, in=180] (q2);
+    \draw[dashed, orange!50, thin] (p3) to[out=0, in=180] (q3);
+    \draw[dashed, purple!50, thin] (p4) to[out=0, in=180] (q4);
+    
+    % 底部说明
+    \node[font=\footnotesize, align=center, text width=10cm] at (0, -2.2) {
+      通过 4 对对应点 $(p_i \leftrightarrow P_i)$ 可求解 $3\times3$ 单应性矩阵 $H$（8 个自由度）
+    };
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}{匈牙利算法 (Hungarian Algorithm)}
+  \small
+  \begin{itemize}
+    \setlength{\itemsep}{0.6em}
+    \item \textbf{定义}：一种组合优化算法，用于在多项式时间内求解\textbf{指派问题}（Assignment Problem），即如何在满足约束的情况下总代价最小。
+    \item \textbf{多视角目标关联}：解决视角 A 中的``检测框 $i$''与视角 B 中的``检测框 $j$''是否属于同一个人的问题。
+    \item \textbf{匹配流程}：
+      \begin{enumerate}
+        \item \textbf{构建代价矩阵 (Cost Matrix)}：计算视角 $A$ 中目标 $i$ 与视角 $B$ 中目标 $j$ 的匹配代价 $C_{ij}$。
+          $$ C_{ij} = \alpha \cdot \underbrace{\| P_i - P_j \|_2}_{\text{球场平面投影距离}} + \beta \cdot \underbrace{(1 - \text{Sim}(f_i, f_j))}_{\text{外观特征差异 (ReID)}} $$
+          其中 $P = H \cdot p$ 为映射后的 3D 坐标，$f$ 为特征向量。
+        \item \textbf{求解最优匹配}：使用匈牙利算法寻找全局最优的匹配方案 $M$，使得总匹配代价 $\sum_{(i,j) \in M} C_{ij}$ 最小。
+      \end{enumerate}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline Framework}
+  \centering
+  \begin{tikzpicture}[
+    % 定义样式
+    viewbox/.style={rectangle, rounded corners=3pt, draw=teal!70!black, fill=teal!20, 
+      minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+    procbox/.style={rectangle, rounded corners=3pt, draw=blue!70!black, fill=blue!15, 
+      minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize, align=center},
+    fusebox/.style={rectangle, rounded corners=3pt, draw=orange!80!black, fill=orange!20, 
+      minimum width=1.5cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+    outbox/.style={rectangle, rounded corners=3pt, draw=green!70!black, fill=green!20, 
+      minimum width=1.2cm, minimum height=0.65cm, font=\scriptsize\bfseries, align=center},
+    arrow/.style={-{Stealth[length=1.8mm]}, semithick, draw=gray!70},
+    groupbox/.style={draw=gray!40, dashed, rounded corners=4pt, inner sep=3pt},
+    scale=0.82, transform shape
+  ]
+    % 视角输入
+    \node[viewbox] (v1) at (0, 1.1) {视角 1};
+    \node[viewbox] (v2) at (0, 0) {视角 2};
+    \node[viewbox] (v3) at (0, -1.1) {视角 3};
+    
+    % 单视角处理
+    \node[procbox] (t1) at (1.9, 1.1) {追踪+ReID};
+    \node[procbox] (t2) at (1.9, 0) {追踪+ReID};
+    \node[procbox] (t3) at (1.9, -1.1) {追踪+ReID};
+    
+    % 单应性映射
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h1) at (3.5, 1.1) {$H_1$};
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h2) at (3.5, 0) {$H_2$};
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (h3) at (3.5, -1.1) {$H_3$};
+    
+    % 融合模块
+    \node[fusebox] (hungarian) at (5.3, 0) {匈牙利\\匹配};
+    \node[fusebox, fill=red!15, draw=red!70!black] (fusion) at (7.2, 0) {位置融合\\加权平均};
+    \node[fusebox, fill=yellow!25, draw=yellow!70!black] (interp) at (9.1, 0) {差值优化\\去异常};
+    
+    % 逆映射
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih1) at (10.7, 1.1) {$H_1^{-1}$};
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih2) at (10.7, 0) {$H_2^{-1}$};
+    \node[procbox, fill=purple!15, draw=purple!70!black, minimum width=0.9cm] (ih3) at (10.7, -1.1) {$H_3^{-1}$};
+    
+    % 输出
+    \node[outbox] (o1) at (12.3, 1.1) {输出 1};
+    \node[outbox] (o2) at (12.3, 0) {输出 2};
+    \node[outbox] (o3) at (12.3, -1.1) {输出 3};
+    
+    % 连接箭头 - 输入到追踪
+    \draw[arrow] (v1) -- (t1);
+    \draw[arrow] (v2) -- (t2);
+    \draw[arrow] (v3) -- (t3);
+    
+    % 追踪到单应性
+    \draw[arrow] (t1) -- (h1);
+    \draw[arrow] (t2) -- (h2);
+    \draw[arrow] (t3) -- (h3);
+    
+    % 单应性到匈牙利
+    \draw[arrow] (h1.east) -- ++(0.25,0) |- (hungarian.west);
+    \draw[arrow] (h2) -- (hungarian);
+    \draw[arrow] (h3.east) -- ++(0.25,0) |- (hungarian.west);
+    
+    % 融合流程
+    \draw[arrow] (hungarian) -- (fusion);
+    \draw[arrow] (fusion) -- (interp);
+    
+    % 差值到逆映射
+    \draw[arrow] (interp.east) -- ++(0.25,0) |- (ih1.west);
+    \draw[arrow] (interp) -- (ih2);
+    \draw[arrow] (interp.east) -- ++(0.25,0) |- (ih3.west);
+    
+    % 逆映射到输出
+    \draw[arrow] (ih1) -- (o1);
+    \draw[arrow] (ih2) -- (o2);
+    \draw[arrow] (ih3) -- (o3);
+    
+    % 分组框
+    \begin{scope}[on background layer]
+      \node[groupbox, fill=teal!5, fit=(v1)(v2)(v3), label={[font=\tiny\color{teal!70!black}]above:多视角输入}] {};
+      \node[groupbox, fill=blue!5, fit=(t1)(t2)(t3), label={[font=\tiny\color{blue!70!black}]above:单视角处理}] {};
+      \node[groupbox, fill=purple!5, fit=(h1)(h2)(h3), label={[font=\tiny\color{purple!70!black}]above:映射}] {};
+      \node[groupbox, fill=orange!5, fit=(hungarian)(fusion)(interp), label={[font=\tiny\color{orange!70!black}]above:Late Fusion}] {};
+      \node[groupbox, fill=purple!5, fit=(ih1)(ih2)(ih3), label={[font=\tiny\color{purple!70!black}]above:反映射}] {};
+      \node[groupbox, fill=green!5, fit=(o1)(o2)(o3), label={[font=\tiny\color{green!70!black}]above:输出}] {};
+    \end{scope}
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}{Late Fusion 流程}
+  \begin{enumerate}
+    \item 每个视角分别追踪，用之前的 ReID、差值优化，允许有一些不好处理的细碎片段（为空）
+    \item 用\textbf{单应性矩阵}将所有框的底部的中点映射到篮球场平面
+    \item 用\textbf{匈牙利算法}，根据 3D 距离等几何约束、ReID 等将不同视角的框匹配在一起
+    \item 如果多个视角都看到了该目标，取其 3D 坐标的加权平均值作为真实位置；如果某个视角遮挡了，依靠其他视角的观测值更新位置
+    \item 仍然可以差值优化，去除异常值，防止取平均造成跳跃，或者存在所有视角都为空的情况
+    \item 利用\textbf{单应性矩阵}的逆，反向映射回追踪视频
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{已完成 2D 平面映射，效果不错}
+见 demo，目前实现了映射到 2D 平面，下一周预计实现完整的 Pipeline 并进行调整。可以尝试使用多个点，OpenCV 的 \textit{RANSAC} 方法可以自动放弃不准的点，提高精度。
+\end{frame}
+
+\begin{frame}[allowframebreaks]{参考文献}
+  \bibliographystyle{thubeamer}
+  \bibliography{reference}
+\end{frame}
+
+\begin{frame}
+  \begin{center}
+    {\Huge\calligra Thanks for your attention!}
+  \end{center}
+\end{frame}
+
+% 结束文档撰写
+\end{document}

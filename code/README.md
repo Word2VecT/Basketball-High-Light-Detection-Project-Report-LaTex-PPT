@@ -1,13 +1,20 @@
-# Basketball Highlight Detection
+# HAR
 
-此项目包含篮球精彩片段检测的流水线代码。
+此项目包含复杂动作行为识别与序列生成代码。
+
+完成情况
+
+- [x] 人物追踪
+- [] 动作识别
+- [] 高光片段评价与剪辑
 
 ## 项目结构
 
-- `src/track/`: 源代码目录
-  - `pipeline.py`: 主处理流水线
-  - `traj_*.py`: 轨迹生成、平滑、匹配、ReID等模块
-  - `siglip.py`: SigLIP 模型封装
+- `src/`: 源代码目录
+  - `track/`: 人物追踪代码
+    - `pipeline.py`: 主处理流水线
+    - `traj_*.py`: 轨迹生成、平滑、匹配、ReID等模块
+    - `siglip.py`: SigLIP 模型封装
 - `assets/`: 资源文件
   - `court__bg.png`: 球场背景图
   - `homo/`: 单应性矩阵文件
@@ -18,6 +25,8 @@
 
 此项目使用 `uv` 进行依赖管理。
 
+在 `src/track/pipeline.py` 中配置视频路径等。
+
 1.  安装依赖：
     ```bash
     uv sync
@@ -27,10 +36,6 @@
 2.  运行流水线：
     在项目根目录下运行：
     ```bash
-    HF_ENDPOINT="https://hf-mirror.com" python -m src.track.pipeline
+    export HF_ENDPOINT="https://hf-mirror.com"  # 如果有网络问题
+    python -m src.track.pipeline
     ```
-
-## 注意事项
-
-- 代码中的文件路径已更新为相对于项目根目录的 `assets/` 路径。请确保在项目根目录下运行脚本。
-- 如需修改配置，请参考 `pipeline.py` 中的配置部分。
