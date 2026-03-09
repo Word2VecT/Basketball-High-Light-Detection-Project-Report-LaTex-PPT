@@ -12,7 +12,6 @@ from vllm import LLM
 # -------------------------- Qwen3-VL 基础配置 --------------------------
 QWEN_MODEL_NAME = "Qwen/Qwen3-VL-Embedding-2B"
 QWEN_RUNNER = "pooling"
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  # 多卡配置
 TENSOR_PARALLEL_SIZE = 4  # 需与 GPU 数量一致
 
 

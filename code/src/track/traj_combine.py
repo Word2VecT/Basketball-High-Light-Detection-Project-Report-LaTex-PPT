@@ -1,10 +1,15 @@
+import bisect
 import json
-import os
+import logging
 import math
-from typing import Any, Dict, List, Optional, Tuple, Union
+import os
+import time
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger("track.traj_combine")
 
 
 class SlidingWindowTrajectoryMerger:
@@ -13,6 +18,7 @@ class SlidingWindowTrajectoryMerger:
     核心：1. 每一轮拼接后输出轨迹俯视图 2. 每一轮输出融合失败的轨迹（JSON+可视化） 3. 融合后的轨迹ID沿用前一个片段的原始轨迹ID
     新增：未匹配轨迹自动保留到下一轮，仅最终轮未匹配才标记为失败
     """
+
     # 轨迹状态枚举（保留核心）
     TRAJ_STATUS_UNJUDGED = "unjudged"
     TRAJ_STATUS_ORIGINAL_MATCHED = "original_matched"
@@ -87,7 +93,9 @@ class SlidingWindowTrajectoryMerger:
         self.total_fusion_count = 0
         self.merged_finished_trajectories: Dict[str, Dict[int, Dict]] = {}
         self.unmatched_trajectories: Dict[str, Dict[int, Dict]] = {}  # 全局失败轨迹（仅最终轮未匹配）
-        self.round_unmatched_trajectories: Dict[int, Dict[str, Dict[int, Dict]]] = {}  # 按轮次存储"本轮未匹配但保留"的轨迹
+        self.round_unmatched_trajectories: Dict[
+            int, Dict[str, Dict[int, Dict]]
+        ] = {}  # 按轮次存储"本轮未匹配但保留"的轨迹
 
     # ===================== 基础工具方法（完全移除视频相关） =====================
     def ensure_dir(self, path: str) -> None:
@@ -142,7 +150,7 @@ class SlidingWindowTrajectoryMerger:
                     "y": y,
                     "confidence": confidence,
                     "box": box,  # 保留所有原有box字段
-                    "player_id": player_id
+                    "player_id": player_id,
                 }
             except (ValueError, TypeError, IndexError):
                 continue
@@ -155,7 +163,7 @@ class SlidingWindowTrajectoryMerger:
         """
         if not isinstance(box_list, list):
             return []
-        
+
         # 深拷贝避免修改原数据
         new_box_list = json.loads(json.dumps(box_list))
         for box_item in new_box_list:
@@ -165,8 +173,14 @@ class SlidingWindowTrajectoryMerger:
         return new_box_list
 
     # 【核心修改】修改融合轨迹ID生成逻辑：接收前一个片段的轨迹ID作为融合后的ID
-    def fuse_trajectories(self, traj_short: Dict[int, Dict], traj_long: Dict[int, Dict], 
-                          traj_short_id: str, traj_long_id: str, fused_traj_id: str) -> Tuple[str, Dict[int, Dict]]:
+    def fuse_trajectories(
+        self,
+        traj_short: Dict[int, Dict],
+        traj_long: Dict[int, Dict],
+        traj_short_id: str,
+        traj_long_id: str,
+        fused_traj_id: str,
+    ) -> Tuple[str, Dict[int, Dict]]:
         """
         纯轨迹融合：保留box所有原有标注，仅新增fused_with
         fused_traj_id: 融合后的轨迹ID（指定为前一个片段的轨迹ID）
@@ -196,7 +210,7 @@ class SlidingWindowTrajectoryMerger:
                     "confidence": (conf_short + conf_long) / 2,
                     "box": box_short + box_long,  # 保留所有原有box标注
                     "fusion_note": f"weighted by conf({conf_short:.2f}, {conf_long:.2f}) (sliding window)",
-                    "player_id": data_short.get("player_id", data_long.get("player_id", "未匹配"))
+                    "player_id": data_short.get("player_id", data_long.get("player_id", "未匹配")),
                 }
             elif data_short:
                 # 关键修复：保留原有box，仅添加标记
@@ -207,7 +221,7 @@ class SlidingWindowTrajectoryMerger:
                     "confidence": data_short["confidence"],
                     "box": box,  # 保留所有原有box标注
                     "fusion_note": f"only from {traj_short_id} (sliding window)",
-                    "player_id": data_short.get("player_id", "未匹配")
+                    "player_id": data_short.get("player_id", "未匹配"),
                 }
             elif data_long:
                 # 关键修复：保留原有box，仅添加标记
@@ -218,13 +232,15 @@ class SlidingWindowTrajectoryMerger:
                     "confidence": data_long["confidence"],
                     "box": box,  # 保留所有原有box标注
                     "fusion_note": f"only from {traj_long_id} (sliding window)",
-                    "player_id": data_long.get("player_id", "未匹配")
+                    "player_id": data_long.get("player_id", "未匹配"),
                 }
 
         return fused_id, fused_traj
 
     # ===================== 新增：绘制/保存每一轮的失败轨迹 =====================
-    def draw_round_unmatched_trajectory_overview(self, round_idx: int, round_unmatched_pool: Dict[str, Dict[int, Dict]]) -> None:
+    def draw_round_unmatched_trajectory_overview(
+        self, round_idx: int, round_unmatched_pool: Dict[str, Dict[int, Dict]]
+    ) -> None:
         """
         绘制指定轮次的“未匹配但保留”轨迹俯视图并保存
         :param round_idx: 轮次编号（从1开始）
@@ -251,22 +267,14 @@ class SlidingWindowTrajectoryMerger:
                 pixel_points = [self.convert_meter_to_pixel(traj_data[f]["x"], traj_data[f]["y"]) for f in frame_list]
                 points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
                 cv2.polylines(img, [points_array], isClosed=False, color=color, thickness=2)
-                
+
                 # 标记轨迹起点和终点
                 cv2.circle(img, pixel_points[0], 3, color, -1)
                 cv2.circle(img, pixel_points[-1], 5, color, -1)
-                
+
                 # 标注轨迹ID（简短显示）
                 end_px, end_py = pixel_points[-1]
-                cv2.putText(
-                    img,
-                    f"{traj_id[:15]}",
-                    (end_px + 5, end_py + 5),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    color,
-                    1
-                )
+                cv2.putText(img, f"{traj_id[:15]}", (end_px + 5, end_py + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
         # 3. 标注轮次和“未匹配但保留”的轨迹数量
         cv2.putText(
@@ -276,7 +284,7 @@ class SlidingWindowTrajectoryMerger:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (0, 0, 255),
-            2
+            2,
         )
 
         # 4. 保存该轮次失败轨迹的总览图
@@ -295,7 +303,7 @@ class SlidingWindowTrajectoryMerger:
             "round_idx": round_idx,
             "pending_count": len(round_unmatched_pool),
             "pending_trajectories": round_unmatched_pool,
-            "note": "这些轨迹本轮未匹配，但已保留到下一轮继续融合"
+            "note": "这些轨迹本轮未匹配，但已保留到下一轮继续融合",
         }
         with open(round_unmatched_summary_path, "w", encoding="utf-8") as f:
             json.dump(summary_data, f, ensure_ascii=False, indent=2, default=str)
@@ -313,7 +321,7 @@ class SlidingWindowTrajectoryMerger:
         """
         # 1. 创建背景图
         img = self.get_pure_background()
-        
+
         # 2. 区分融合轨迹和未匹配保留轨迹（通过是否在merged_finished里）
         merged_traj_ids = set(self.merged_finished_trajectories.keys())
         for idx, (traj_id, traj_data) in enumerate(round_pool.items()):
@@ -324,7 +332,7 @@ class SlidingWindowTrajectoryMerger:
             else:
                 color = self.UNMATCHED_TRAJ_COLORS[idx % len(self.UNMATCHED_TRAJ_COLORS)]
                 thickness = 2
-            
+
             frame_list = sorted(traj_data.keys())
             if len(frame_list) < 2:
                 continue
@@ -333,11 +341,11 @@ class SlidingWindowTrajectoryMerger:
             pixel_points = [self.convert_meter_to_pixel(traj_data[f]["x"], traj_data[f]["y"]) for f in frame_list]
             points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
             cv2.polylines(img, [points_array], isClosed=False, color=color, thickness=thickness)
-            
+
             # 标记轨迹起点和终点
             cv2.circle(img, pixel_points[0], 4 if traj_id in merged_traj_ids else 3, color, -1)
             cv2.circle(img, pixel_points[-1], 6 if traj_id in merged_traj_ids else 5, color, -1)
-            
+
             # 标注轨迹ID（简短显示）
             end_px, end_py = pixel_points[-1]
             cv2.putText(
@@ -347,7 +355,7 @@ class SlidingWindowTrajectoryMerger:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
                 color,
-                2 if traj_id in merged_traj_ids else 1
+                2 if traj_id in merged_traj_ids else 1,
             )
 
         # 3. 标注轮次信息（区分融合/保留轨迹数量）
@@ -360,7 +368,7 @@ class SlidingWindowTrajectoryMerger:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
             (0, 0, 255),
-            2
+            2,
         )
 
         # 4. 保存该轮次的俯视图
@@ -400,11 +408,12 @@ class SlidingWindowTrajectoryMerger:
 
         # 【修改】移除“目标轨迹必须更长”的限制，避免短轨迹被误判
         target_candidates = {
-            tid: tdata for tid, tdata in target_pool.items()
+            tid: tdata
+            for tid, tdata in target_pool.items()
             if self.get_trajectory_length(tdata) >= 2  # 仅过滤无效轨迹
         }
         if not target_candidates:
-            match_note = f"目标池无有效轨迹（长度≥2）"
+            match_note = "目标池无有效轨迹（长度≥2）"
             return None, None, match_note
 
         for target_tid, target_tdata in target_candidates.items():
@@ -426,9 +435,7 @@ class SlidingWindowTrajectoryMerger:
                 f"| 覆盖比例={coverage_ratio:.2f}(≥{self.min_common_coverage})"
             )
         else:
-            match_note = (
-                f"暂未匹配：所有候选轨迹的共同帧/覆盖比例不满足，或误差超过阈值({self.error_threshold}米) | 已保留到下一轮"
-            )
+            match_note = f"暂未匹配：所有候选轨迹的共同帧/覆盖比例不满足，或误差超过阈值({self.error_threshold}米) | 已保留到下一轮"
 
         return best_match_id, best_match_data, match_note
 
@@ -465,21 +472,25 @@ class SlidingWindowTrajectoryMerger:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             color,
-            2
+            2,
         )
         output_path = os.path.join(self.single_merged_dir, f"{traj_id}.png")
         cv2.imwrite(output_path, img)
 
     # 【核心修改】run_serial_fusion：未匹配轨迹保留到下一轮，仅最终轮未匹配才标记为失败
     def run_serial_fusion(self) -> str:
+        t0 = time.time()
+        logger.info(f"[traj_combine] 开始滑动窗口拼接 | 片段数: {len(self.all_json_paths)}")
         print(f"\n=== 开始滑动窗口轨迹片段拼接（共{len(self.all_json_paths)}个片段）===")
-        print(f"拼接参数：最小共同帧数={self.min_common_frames} | 最小覆盖比例={self.min_common_coverage} | 误差阈值={self.error_threshold}米")
-        print(f"核心规则：未匹配轨迹自动保留到下一轮，仅最终轮未匹配才标记为失败")
+        print(
+            f"拼接参数：最小共同帧数={self.min_common_frames} | 最小覆盖比例={self.min_common_coverage} | 误差阈值={self.error_threshold}米"
+        )
+        print("核心规则：未匹配轨迹自动保留到下一轮，仅最终轮未匹配才标记为失败")
 
         # 初始化第一轮：加载第一个片段作为初始池
         current_json = self.all_json_paths[0]
         current_pool = self._load_and_format_pool(current_json)
-        
+
         # 输出第0轮（初始片段）的轨迹俯视图
         self.draw_round_trajectory_overview(0, current_pool)
         # 第0轮无未匹配轨迹，初始化空的pending池
@@ -491,7 +502,7 @@ class SlidingWindowTrajectoryMerger:
             next_json = self.all_json_paths[round_idx]
             next_pool = self._load_and_format_pool(next_json)
 
-            print(f"\n--- 第{round_idx}轮拼接：片段{round_idx} + 片段{round_idx+1} ---")
+            print(f"\n--- 第{round_idx}轮拼接：片段{round_idx} + 片段{round_idx + 1} ---")
             print(f"当前池轨迹数：{len(current_pool)} | 下一个片段轨迹数：{len(next_pool)}")
 
             # 初始化本轮变量
@@ -508,7 +519,9 @@ class SlidingWindowTrajectoryMerger:
                 if src_tid is None:
                     break
 
-                best_match_id, best_match_data, match_note = self.find_best_match_for_sliding_window(src_data, target_pool)
+                best_match_id, best_match_data, match_note = self.find_best_match_for_sliding_window(
+                    src_data, target_pool
+                )
                 print(f"  轨迹{src_tid}：{match_note}")
 
                 if best_match_id:
@@ -519,7 +532,7 @@ class SlidingWindowTrajectoryMerger:
                         fused_traj_id = src_tid
                     else:
                         fused_traj_id = best_match_id
-                    
+
                     # 融合轨迹
                     fused_id, fused_data = self.fuse_trajectories(
                         src_data, best_match_data, src_tid, best_match_id, fused_traj_id
@@ -570,15 +583,14 @@ class SlidingWindowTrajectoryMerger:
         # 最终融合轨迹：merged_finished_trajectories
         # 最终未匹配轨迹：current_pool中不在merged_finished里的轨迹
         final_unmatched = {
-            tid: tdata for tid, tdata in current_pool.items()
-            if tid not in self.merged_finished_trajectories
+            tid: tdata for tid, tdata in current_pool.items() if tid not in self.merged_finished_trajectories
         }
         self.unmatched_trajectories = final_unmatched
 
         # 保存最终结果
         self._save_final_results()
 
-        print(f"\n=== 滑动窗口轨迹片段拼接完成 ===")
+        print("\n=== 滑动窗口轨迹片段拼接完成 ===")
         print(f"累计拼接次数：{self.total_fusion_count}")
         print(f"最终拼接轨迹数：{len(self.merged_finished_trajectories)}")
         print(f"最终未匹配轨迹数：{len(self.unmatched_trajectories)}（所有轮次后仍未匹配）")
@@ -586,6 +598,11 @@ class SlidingWindowTrajectoryMerger:
         print(f"每一轮未匹配保留轨迹路径：{self.round_unmatched_dir}")
         print(f"最终结果保存至：{self.final_output_dir}")
 
+        elapsed = time.time() - t0
+        logger.info(
+            f"[traj_combine] 滑动窗口拼接完成 | 融合轨迹: {len(self.merged_finished_trajectories)} | "
+            f"未匹配: {len(self.unmatched_trajectories)} | 耗时 {elapsed:.1f}s"
+        )
         return self.final_merged_json
 
     def _load_and_format_pool(self, json_path: str) -> Dict[str, Dict[int, Dict]]:
@@ -605,8 +622,11 @@ class SlidingWindowTrajectoryMerger:
         return temp_path
 
     def _get_shortest_unjudged_traj(
-        self, pool1: Dict[str, Dict[int, Dict]], pool2: Dict[str, Dict[int, Dict]],
-        status1: Dict[str, str], status2: Dict[str, str]
+        self,
+        pool1: Dict[str, Dict[int, Dict]],
+        pool2: Dict[str, Dict[int, Dict]],
+        status1: Dict[str, str],
+        status2: Dict[str, str],
     ) -> Tuple[Optional[str], Optional[Dict[int, Dict]], str, Dict[str, Dict[int, Dict]]]:
         unjudged = []
         for tid, status in status1.items():
@@ -626,8 +646,12 @@ class SlidingWindowTrajectoryMerger:
 
     def _save_final_results(self) -> None:
         # 插值补全轨迹
-        merged_interp = {tid: self.interpolate_single_trajectory(tdata) for tid, tdata in self.merged_finished_trajectories.items()}
-        unmatched_interp = {tid: self.interpolate_single_trajectory(tdata) for tid, tdata in self.unmatched_trajectories.items()}
+        merged_interp = {
+            tid: self.interpolate_single_trajectory(tdata) for tid, tdata in self.merged_finished_trajectories.items()
+        }
+        unmatched_interp = {
+            tid: self.interpolate_single_trajectory(tdata) for tid, tdata in self.unmatched_trajectories.items()
+        }
 
         # 构造最终JSON
         final_json = {
@@ -636,18 +660,20 @@ class SlidingWindowTrajectoryMerger:
                 "error_threshold": self.error_threshold,
                 "sliding_window_params": {
                     "min_common_frames": self.min_common_frames,
-                    "min_common_coverage": self.min_common_coverage
+                    "min_common_coverage": self.min_common_coverage,
                 },
                 "traj_count_summary": {
                     "merged_finished_count": len(merged_interp),
                     "final_unmatched_count": len(unmatched_interp),
-                    "round_pending_summary": {k: len(v) for k, v in self.round_unmatched_trajectories.items()}  # 每轮pending数量
-                }
+                    "round_pending_summary": {
+                        k: len(v) for k, v in self.round_unmatched_trajectories.items()
+                    },  # 每轮pending数量
+                },
             },
             "final_merged_finished_trajectories": merged_interp,
             "final_unmatched_trajectories": unmatched_interp,  # 仅最终未匹配的轨迹
             "round_pending_trajectories": self.round_unmatched_trajectories,  # 每轮未匹配但保留的轨迹
-            "all_round_final_pool": self.merged_finished_trajectories  # 所有融合后的轨迹
+            "all_round_final_pool": self.merged_finished_trajectories,  # 所有融合后的轨迹
         }
         with open(self.final_merged_json, "w", encoding="utf-8") as f:
             json.dump(final_json, f, ensure_ascii=False, indent=2, default=str)
@@ -666,14 +692,16 @@ class SlidingWindowTrajectoryMerger:
             color = self.UNMATCHED_TRAJ_COLORS[idx % len(self.UNMATCHED_TRAJ_COLORS)]
             points = [self.convert_meter_to_pixel(tdata[f]["x"], tdata[f]["y"]) for f in sorted(tdata.keys())]
             if len(points) >= 2:
-                cv2.polylines(all_img, [np.array(points).reshape(-1,1,2)], False, color, 2)
+                cv2.polylines(all_img, [np.array(points).reshape(-1, 1, 2)], False, color, 2)
         # 绘制融合轨迹（亮色粗线）
         for idx, (tid, tdata) in enumerate(merged_interp.items()):
             color = self.MERGED_TRAJ_COLORS[idx % len(self.MERGED_TRAJ_COLORS)]
             points = [self.convert_meter_to_pixel(tdata[f]["x"], tdata[f]["y"]) for f in sorted(tdata.keys())]
             if len(points) >= 2:
-                cv2.polylines(all_img, [np.array(points).reshape(-1,1,2)], False, color, 4)
-        cv2.putText(all_img, "merged(color) | final unmatched(gray)", (20,30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+                cv2.polylines(all_img, [np.array(points).reshape(-1, 1, 2)], False, color, 4)
+        cv2.putText(
+            all_img, "merged(color) | final unmatched(gray)", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2
+        )
         cv2.imwrite(self.final_all_traj_overview, all_img)
 
     def interpolate_single_trajectory(self, traj_data: Dict[int, Dict]) -> Dict[int, Dict]:
@@ -695,8 +723,9 @@ class SlidingWindowTrajectoryMerger:
                 interpolated_traj[frame] = traj_data[frame].copy()
                 continue
 
-            prev_frame = max([f for f in original_frames if f < frame])
-            next_frame = min([f for f in original_frames if f > frame])
+            idx = bisect.bisect_left(original_frames, frame)
+            prev_frame = original_frames[idx - 1]
+            next_frame = original_frames[idx]
             frame_diff = next_frame - prev_frame
             weight_prev = (next_frame - frame) / frame_diff
             weight_next = 1 - weight_prev
@@ -707,7 +736,7 @@ class SlidingWindowTrajectoryMerger:
                 "confidence": (frame_conf[prev_frame] + frame_conf[next_frame]) / 2,
                 "box": [],
                 "fusion_note": f"interpolated (prev:{prev_frame}, next:{next_frame})",
-                "player_id": traj_data[prev_frame].get("player_id", "未匹配")
+                "player_id": traj_data[prev_frame].get("player_id", "未匹配"),
             }
 
         return interpolated_traj
@@ -735,7 +764,7 @@ class SlidingWindowTrajectoryMerger:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
                 color,
-                2
+                2,
             )
 
         cv2.putText(
@@ -745,7 +774,7 @@ class SlidingWindowTrajectoryMerger:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
             (0, 0, 255),
-            2
+            2,
         )
         return img
 
@@ -772,7 +801,7 @@ class SlidingWindowTrajectoryMerger:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
                 color,
-                1
+                1,
             )
 
         cv2.putText(
@@ -782,7 +811,7 @@ class SlidingWindowTrajectoryMerger:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
             (0, 0, 255),
-            2
+            2,
         )
         return img
 
@@ -796,7 +825,7 @@ class SlidingWindowTrajectoryMerger:
 #         "path/to/fragment3.json"   # 可添加更多片段
 #     ]
 #     output_root = "path/to/output"
-    
+
 #     # 初始化并运行拼接
 #     merger = SlidingWindowTrajectoryMerger(
 #         all_json_paths=json_paths,

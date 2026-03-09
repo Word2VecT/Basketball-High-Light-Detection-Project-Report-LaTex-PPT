@@ -1,9 +1,14 @@
 import json
+import logging
 import os
-from typing import List, Optional, Tuple, Dict, Any
+import time
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from scipy.ndimage import gaussian_filter1d, uniform_filter1d
+
+logger = logging.getLogger("track.traj_smooth")
 
 
 class AdaptiveJumpRemover:
@@ -106,6 +111,7 @@ class AdaptiveJumpRemover:
         if len(points) < self.lookback_frames + 2:
             return points, frames, boxes, confs, []
 
+        removed_indices = []
         i = self.lookback_frames
         while i < len(points) - 1:
             ref_speed = self.calculate_average_speed(points, frames, i)
@@ -117,56 +123,37 @@ class AdaptiveJumpRemover:
             frame_gap = max(1, frames[i + 1] - frames[i])
             curr_speed = (dist / frame_gap) * self.frame_rate
 
-            if dist > self.jump_distance_threshold or curr_speed > ref_speed * self.speed_ratio_threshold:
-                i += 1
+            if dist > self.jump_distance_threshold or (ref_speed > 0 and curr_speed > ref_speed * self.speed_ratio_threshold):
+                removed_indices.append(i + 1)
+                points.pop(i + 1)
+                frames.pop(i + 1)
+                boxes.pop(i + 1)
+                confs.pop(i + 1)
             else:
                 i += 1
 
-        return points, frames, boxes, confs, []
+        return points, frames, boxes, confs, removed_indices
 
     # --------------------------------------------------
     # 平滑滤波
     # --------------------------------------------------
 
     def _filter(self, points: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
-        """
-        对轨迹点进行滤波平滑（移动平均 + 高斯平滑）。
-
-        Args:
-            points: 轨迹点列表 [(x, y), ...]。
-
-        Returns:
-            平滑后的轨迹点列表。
-        """
+        """对轨迹点进行滤波平滑（移动平均 + 高斯平滑）。"""
         n = len(points)
         if n < 3:
             return points
 
-        xs = np.array([p[0] for p in points], dtype=np.float32)
-        ys = np.array([p[1] for p in points], dtype=np.float32)
+        xs = np.array([p[0] for p in points], dtype=np.float64)
+        ys = np.array([p[1] for p in points], dtype=np.float64)
 
         if self.moving_average_window > 1 and n >= self.moving_average_window:
-            half = self.moving_average_window // 2
-            xs_src = xs.copy()
-            ys_src = ys.copy()
-            for i in range(n):
-                left_idx = max(0, i - half)
-                r = min(n, i + half + 1)
-                xs[i] = xs_src[left_idx:r].mean()
-                ys[i] = ys_src[left_idx:r].mean()
+            xs = uniform_filter1d(xs, size=self.moving_average_window, mode="nearest")
+            ys = uniform_filter1d(ys, size=self.moving_average_window, mode="nearest")
 
         if self.gaussian_sigma > 0:
-            radius = int(3 * self.gaussian_sigma)
-            xs_g, ys_g = np.zeros(n), np.zeros(n)
-            for i in range(n):
-                left_idx = max(0, i - radius)
-                r = min(n, i + radius + 1)
-                idx = np.arange(left_idx, r)
-                w = np.exp(-((idx - i) ** 2) / (2 * self.gaussian_sigma**2))
-                w /= w.sum()
-                xs_g[i] = np.sum(xs[left_idx:r] * w)
-                ys_g[i] = np.sum(ys[left_idx:r] * w)
-            xs, ys = xs_g, ys_g
+            xs = gaussian_filter1d(xs, sigma=self.gaussian_sigma, mode="nearest")
+            ys = gaussian_filter1d(ys, sigma=self.gaussian_sigma, mode="nearest")
 
         return list(zip(xs.tolist(), ys.tolist()))
 
@@ -208,13 +195,13 @@ class AdaptiveJumpRemover:
             text_x = min(text_x, self.top_view_width - 50)
             text_y = max(text_y, 20)
             cv2.putText(
-                bg, 
+                bg,
                 traj_name,  # 轨迹名称
-                (text_x, text_y), 
-                font, 
-                font_scale, 
-                font_color, 
-                font_thickness
+                (text_x, text_y),
+                font,
+                font_scale,
+                font_color,
+                font_thickness,
             )
         cv2.imwrite(out_path, bg)
 
@@ -271,9 +258,13 @@ class AdaptiveJumpRemover:
 
     def process_batch(self) -> List[str]:
         """批量处理所有输入路径。"""
+        t0 = time.time()
+        logger.info(f"[traj_smooth] 开始批量平滑 | 输入数: {len(self.traj_gen_paths_list)}")
         self.successful_smooth_folders.clear()
         for p in self.traj_gen_paths_list:
             self.process_single(p)
+        elapsed = time.time() - t0
+        logger.info(f"[traj_smooth] 批量平滑完成 | 成功 {len(self.successful_smooth_folders)}/{len(self.traj_gen_paths_list)} | 耗时 {elapsed:.1f}s")
         return self.successful_smooth_folders
 
 
@@ -505,31 +496,16 @@ class MergedAdaptiveJumpRemover:
         if n < 3:
             return points
 
-        xs = np.array([p[0] for p in points], dtype=np.float32)
-        ys = np.array([p[1] for p in points], dtype=np.float32)
+        xs = np.array([p[0] for p in points], dtype=np.float64)
+        ys = np.array([p[1] for p in points], dtype=np.float64)
 
         if self.moving_average_window > 1 and n >= self.moving_average_window:
-            half = self.moving_average_window // 2
-            xs_src = xs.copy()
-            ys_src = ys.copy()
-            for i in range(n):
-                left_idx = max(0, i - half)
-                r = min(n, i + half + 1)
-                xs[i] = xs_src[left_idx:r].mean()
-                ys[i] = ys_src[left_idx:r].mean()
+            xs = uniform_filter1d(xs, size=self.moving_average_window, mode="nearest")
+            ys = uniform_filter1d(ys, size=self.moving_average_window, mode="nearest")
 
         if self.gaussian_sigma > 0:
-            radius = int(3 * self.gaussian_sigma)
-            xs_g, ys_g = np.zeros(n), np.zeros(n)
-            for i in range(n):
-                left_idx = max(0, i - radius)
-                r = min(n, i + radius + 1)
-                idx = np.arange(left_idx, r)
-                w = np.exp(-((idx - i) ** 2) / (2 * self.gaussian_sigma**2))
-                w /= w.sum()
-                xs_g[i] = np.sum(xs[left_idx:r] * w)
-                ys_g[i] = np.sum(ys[left_idx:r] * w)
-            xs, ys = xs_g, ys_g
+            xs = gaussian_filter1d(xs, sigma=self.gaussian_sigma, mode="nearest")
+            ys = gaussian_filter1d(ys, sigma=self.gaussian_sigma, mode="nearest")
 
         return list(zip(xs.tolist(), ys.tolist()))
 
@@ -561,7 +537,7 @@ class MergedAdaptiveJumpRemover:
             # 跳过player_id等非轨迹数据键
             if traj_name == "player_id":
                 continue
-            
+
             # 如果是带player_id的结构，需要过滤出帧号数据
             if isinstance(traj, dict) and "player_id" in traj:
                 # 这是带player_id的结构，跳过player_id键
@@ -569,29 +545,21 @@ class MergedAdaptiveJumpRemover:
             else:
                 # 这是纯帧号结构
                 frame_data = traj
-            
+
             pts = [(int(v["x"] * self.scale_ratio), int(v["y"] * self.scale_ratio)) for v in frame_data.values()]
             if len(pts) < 2:
                 continue
-            
+
             # 绘制轨迹线
             for i in range(len(pts) - 1):
                 cv2.line(bg, pts[i], pts[i + 1], (0, 255, 0), 2)
-            
+
             # 标注轨迹名称：在轨迹终点右侧绘制，防止越界
             text_x = pts[-1][0] + 5
             text_y = pts[-1][1] + 5
             text_x = min(text_x, self.top_view_width - 50)
             text_y = max(text_y, 20)
-            cv2.putText(
-                bg,
-                traj_name,
-                (text_x, text_y),
-                font,
-                font_scale,
-                font_color,
-                font_thickness
-            )
+            cv2.putText(bg, traj_name, (text_x, text_y), font, font_scale, font_color, font_thickness)
         cv2.imwrite(self.vis_image_path, bg)
 
     # ==================================================
@@ -613,10 +581,10 @@ class MergedAdaptiveJumpRemover:
     def _extract_trajectory_data(self, traj: Dict) -> Tuple[Dict, Optional[str]]:
         """
         从轨迹数据中提取帧数据和player_id。
-        
+
         Args:
             traj: 轨迹数据字典
-            
+
         Returns:
             (frame_data, player_id):
             - frame_data: 帧号到轨迹点的映射字典
@@ -624,23 +592,23 @@ class MergedAdaptiveJumpRemover:
         """
         frame_data = {}
         player_id = None
-        
+
         for key, value in traj.items():
             if key == "player_id":
                 player_id = value
             elif self._is_frame_key(key):
                 frame_data[key] = value
-        
+
         return frame_data, player_id
 
     def _reconstruct_trajectory(self, frame_data: Dict, player_id: Optional[str]) -> Dict:
         """
         重建轨迹数据结构，兼容两种格式。
-        
+
         Args:
             frame_data: 平滑后的帧数据
             player_id: 球员ID（可选）
-            
+
         Returns:
             重建后的轨迹数据
         """
@@ -655,25 +623,27 @@ class MergedAdaptiveJumpRemover:
 
     def run(self):
         """运行平滑流程，兼容两种JSON结构。"""
+        t0 = time.time()
+        logger.info(f"[traj_smooth] MergedAdaptiveJumpRemover 开始 | 输入: {self.input_json_path}")
         with open(self.input_json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # 获取轨迹数据
         trajectories = data.get("final_merged_finished_trajectories", {})
         if not trajectories:
-            print(f"警告: 未找到final_merged_finished_trajectories字段")
+            print("警告: 未找到final_merged_finished_trajectories字段")
             trajectories = data
 
         processed_trajectories = {}
-        
+
         for name, traj in trajectories.items():
             # 提取轨迹数据（兼容两种结构）
             frame_data, player_id = self._extract_trajectory_data(traj)
-            
+
             if not frame_data:
                 print(f"警告: 轨迹 '{name}' 没有帧数据，跳过")
                 continue
-            
+
             # 准备平滑数据
             frames = sorted(map(int, frame_data.keys()))
             points = [(frame_data[str(f)]["x"], frame_data[str(f)]["y"]) for f in frames]
@@ -723,15 +693,16 @@ class MergedAdaptiveJumpRemover:
         with open(self.output_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-        print(f"[OK] Saved to {self.output_json_path}")
+        elapsed = time.time() - t0
+        logger.info(f"[traj_smooth] MergedAdaptiveJumpRemover 完成 | 轨迹数: {len(processed_trajectories)} | 耗时 {elapsed:.1f}s | 输出: {self.output_json_path}")
         return self.output_json_path
 
 
 if __name__ == "__main__":
     # 示例用法
     smoother = MergedAdaptiveJumpRemover(
-        input_json_path='/data/ljy23/project/code/src/track/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json',
-        output_json_path='./smooth.json',
+        input_json_path="/data/ljy23/project/code/src/track/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json",
+        output_json_path="./smooth.json",
         vis_image_path="./smooth.png",
         moving_average_window=20,
         gaussian_sigma=1.0,

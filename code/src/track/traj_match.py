@@ -1,9 +1,14 @@
+import bisect
 import json
+import logging
 import os
-from typing import Dict, List, Optional, Tuple, Set
+import time
+from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger("track.traj_match")
 
 
 class TrajectoryMerger:
@@ -146,7 +151,7 @@ class TrajectoryMerger:
     def is_merged_trajectory(self, traj_id: str) -> bool:
         """判断是否为已融合过的轨迹 ID。"""
         return traj_id.startswith(self.MERGED_TRAJ_ID_PREFIX) or traj_id.startswith("track")
-    
+
     def _parse_and_init_view(self, view_str: str) -> List[str]:
         """
         解析视角字符串（处理组合视角如view1+view2），并初始化self._current_round_used_frames的键
@@ -159,7 +164,7 @@ class TrajectoryMerger:
             if v not in self._current_round_used_frames:
                 self._current_round_used_frames[v] = {}
         return views
-    
+
     def _is_frame_range_overlap(self, range1: Tuple[int, int], range2: Tuple[int, int]) -> bool:
         """判断两个帧区间是否重叠"""
         s1, e1 = range1
@@ -243,7 +248,7 @@ class TrajectoryMerger:
         def parse_input_traj_data(input_data: Dict, video_path: str, view_name: str) -> Tuple[Dict, Dict]:
             traj_dict = {}
             status_dict = {}
-            
+
             # 情况1：输入是融合结果JSON（包含all_merged/unmatched）
             if "all_merged_trajectories" in input_data:
                 # 融合成功的轨迹：标记为未判断，参与下一轮融合
@@ -305,10 +310,9 @@ class TrajectoryMerger:
                 interpolated_traj[current_frame] = traj_data[current_frame].copy()
                 continue
 
-            prev_frames = [f for f in original_frames if f < current_frame]
-            prev_frame = max(prev_frames) if prev_frames else start_frame
-            next_frames = [f for f in original_frames if f > current_frame]
-            next_frame = min(next_frames) if next_frames else end_frame
+            idx = bisect.bisect_left(original_frames, current_frame)
+            prev_frame = original_frames[idx - 1] if idx > 0 else start_frame
+            next_frame = original_frames[idx] if idx < len(original_frames) else end_frame
 
             frame_diff = next_frame - prev_frame
             weight_prev = (next_frame - current_frame) / frame_diff
@@ -386,7 +390,7 @@ class TrajectoryMerger:
         """融合两条轨迹（基于置信度加权）。"""
         self.merged_traj_counter += 1  # 全局递增，不重置
         fused_id = f"{self.MERGED_TRAJ_ID_PREFIX}{self.merged_traj_counter}"  # 生成 serial_track_1、serial_track_2...
-        
+
         fused_traj = {}
         all_frames = set(traj_short.keys()).union(set(traj_long.keys()))
 
@@ -486,10 +490,10 @@ class TrajectoryMerger:
                     "view": long_view,
                 }
         return fused_id, fused_traj
-    
+
     def get_current_merged_counter(self) -> int:
         return self.merged_traj_counter
-    
+
     def get_shortest_unjudged_trajectory(
         self,
     ) -> Tuple[Optional[str], Optional[Dict], str, Optional[Dict], str]:
@@ -530,7 +534,7 @@ class TrajectoryMerger:
             best_match_data = None
             best_error = float("inf")
             match_note = "未找到有效匹配对象"
-            
+
             # 提取源轨迹的视角（通过工具函数拆解+初始化）
             src_view_str = src_traj_data[next(iter(src_traj_data))]["view"]
             src_views = self._parse_and_init_view(src_view_str)
@@ -596,7 +600,7 @@ class TrajectoryMerger:
                     x2, y2 = target_traj_data[frame]["x"], target_traj_data[frame]["y"]
                     dist = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
                     dist_sum += dist
-                
+
                 avg_error = dist_sum / len(common_frames)
                 print(f"  源轨迹 {src_traj_id} 与目标轨迹 {target_traj_id} | 平均误差 = {avg_error:.4f} | 阈值 = {self.error_threshold}")
 
@@ -650,48 +654,53 @@ class TrajectoryMerger:
         py = max(0, min(py, img_height - 1))
         return (px, py)
 
+    def _draw_trajectory_set(
+        self,
+        img: np.ndarray,
+        traj_dict: Dict,
+        colors: List[Tuple[int, int, int]],
+        line_thickness: int = 3,
+        start_radius: int = 4,
+        end_radius: int = 6,
+        font_scale: float = 0.6,
+        font_thickness: int = 1,
+        label_fn: Optional[Callable] = None,
+    ) -> None:
+        """在图像上绘制一组轨迹。"""
+        for idx, (traj_id, traj_data) in enumerate(traj_dict.items()):
+            color = colors[idx % len(colors)]
+            frame_list = sorted(traj_data.keys())
+            if len(frame_list) < 2:
+                continue
+
+            pixel_points = [
+                self.convert_meter_to_pixel(
+                    traj_data[f]["x"], traj_data[f]["y"],
+                    self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT,
+                )
+                for f in frame_list
+            ]
+
+            if len(pixel_points) >= 2:
+                points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
+                cv2.polylines(img, [points_array], isClosed=False, color=color, thickness=line_thickness)
+            cv2.circle(img, pixel_points[0], start_radius, color, -1)
+            cv2.circle(img, pixel_points[-1], end_radius, color, -1)
+            end_px, end_py = pixel_points[-1]
+            label = label_fn(traj_id, frame_list) if label_fn else traj_id[:15]
+            cv2.putText(img, label, (end_px + 5, end_py + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, font_thickness)
+
     def draw_final_merged_trajectories(self) -> np.ndarray:
         """绘制所有最终融合成功的轨迹汇总图。"""
         if not self.merged_finished_trajectories:
             print("提示：无最终完成的融合轨迹，无需绘制汇总俯视图")
             return np.array([])
-
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
-        traj_idx = 0
-
-        for traj_id, traj_data in self.merged_finished_trajectories.items():
-            traj_color = self.MERGED_TRAJ_COLORS[traj_idx % len(self.MERGED_TRAJ_COLORS)]
-            frame_list = sorted(traj_data.keys())
-            if len(frame_list) < 2:
-                traj_idx += 1
-                continue
-
-            pixel_points = []
-            for frame in frame_list:
-                data = traj_data[frame]
-                px, py = self.convert_meter_to_pixel(
-                    data["x"], data["y"], self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT
-                )
-                pixel_points.append((px, py))
-
-            if len(pixel_points) >= 2:
-                points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(
-                    overview_img, [points_array], isClosed=False, color=traj_color, thickness=3
-                )
-            cv2.circle(overview_img, pixel_points[0], 4, traj_color, -1)
-            cv2.circle(overview_img, pixel_points[-1], 6, traj_color, -1)
-            end_px, end_py = pixel_points[-1]
-            cv2.putText(
-                overview_img,
-                f"{traj_id[:15]}（frame{frame_list[0]}-{frame_list[-1]}）",
-                (end_px + 5, end_py + 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                traj_color,
-                1,
-            )
-            traj_idx += 1
+        self._draw_trajectory_set(
+            overview_img, self.merged_finished_trajectories, self.MERGED_TRAJ_COLORS,
+            line_thickness=3, start_radius=4, end_radius=6, font_scale=0.6, font_thickness=1,
+            label_fn=lambda tid, fl: f"{tid[:15]}（frame{fl[0]}-{fl[-1]}）",
+        )
         return overview_img
 
     def draw_unmatched_trajectories(self) -> np.ndarray:
@@ -699,52 +708,15 @@ class TrajectoryMerger:
         if not self.unmatched_trajectories:
             print("提示：无未匹配轨迹，无需绘制未匹配轨迹俯视图")
             return np.array([])
-
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
-        unmatched_idx = 0
-
-        for traj_id, traj_data in self.unmatched_trajectories.items():
-            traj_color = self.UNMATCHED_TRAJ_COLORS[unmatched_idx % len(self.UNMATCHED_TRAJ_COLORS)]
-            frame_list = sorted(traj_data.keys())
-            if len(frame_list) < 2:
-                unmatched_idx += 1
-                continue
-
-            pixel_points = []
-            for frame in frame_list:
-                data = traj_data[frame]
-                px, py = self.convert_meter_to_pixel(
-                    data["x"], data["y"], self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT
-                )
-                pixel_points.append((px, py))
-
-            if len(pixel_points) >= 2:
-                points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(
-                    overview_img, [points_array], isClosed=False, color=traj_color, thickness=4
-                )
-            cv2.circle(overview_img, pixel_points[0], 5, traj_color, -1)
-            cv2.circle(overview_img, pixel_points[-1], 8, traj_color, -1)
-            end_px, end_py = pixel_points[-1]
-            cv2.putText(
-                overview_img,
-                f"{traj_id[:15]}（{frame_list[0]}-{frame_list[-1]}）",
-                (end_px + 5, end_py + 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                traj_color,
-                2,
-            )
-            unmatched_idx += 1
-
+        self._draw_trajectory_set(
+            overview_img, self.unmatched_trajectories, self.UNMATCHED_TRAJ_COLORS,
+            line_thickness=4, start_radius=5, end_radius=8, font_scale=0.7, font_thickness=2,
+            label_fn=lambda tid, fl: f"{tid[:15]}（{fl[0]}-{fl[-1]}）",
+        )
         cv2.putText(
-            overview_img,
-            f"unmerged（{len(self.unmatched_trajectories)} trajs）",
-            (20, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.9,
-            (0, 0, 255),
-            2,
+            overview_img, f"unmerged（{len(self.unmatched_trajectories)} trajs）",
+            (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2,
         )
         return overview_img
 
@@ -754,87 +726,20 @@ class TrajectoryMerger:
         if total_traj_count == 0:
             print("提示：无任何轨迹可绘制（无已融合+未匹配轨迹）")
             return np.array([])
-
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
-
-        merged_idx = 0
-        for traj_id, traj_data in self.merged_finished_trajectories.items():
-            traj_color = self.MERGED_TRAJ_COLORS[merged_idx % len(self.MERGED_TRAJ_COLORS)]
-            frame_list = sorted(traj_data.keys())
-            if len(frame_list) < 2:
-                merged_idx += 1
-                continue
-
-            pixel_points = []
-            for frame in frame_list:
-                data = traj_data[frame]
-                px, py = self.convert_meter_to_pixel(
-                    data["x"], data["y"], self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT
-                )
-                pixel_points.append((px, py))
-
-            if len(pixel_points) >= 2:
-                points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(
-                    overview_img, [points_array], isClosed=False, color=traj_color, thickness=4
-                )
-            cv2.circle(overview_img, pixel_points[0], 5, traj_color, -1)
-            cv2.circle(overview_img, pixel_points[-1], 7, traj_color, -1)
-            end_px, end_py = pixel_points[-1]
-            cv2.putText(
-                overview_img,
-                f"{traj_id[:15]}(merged)",
-                (end_px + 5, end_py + 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                traj_color,
-                2,
-            )
-            merged_idx += 1
-
-        unmatched_idx = 0
-        for traj_id, traj_data in self.unmatched_trajectories.items():
-            traj_color = self.UNMATCHED_TRAJ_COLORS[unmatched_idx % len(self.UNMATCHED_TRAJ_COLORS)]
-            frame_list = sorted(traj_data.keys())
-            if len(frame_list) < 2:
-                unmatched_idx += 1
-                continue
-
-            pixel_points = []
-            for frame in frame_list:
-                data = traj_data[frame]
-                px, py = self.convert_meter_to_pixel(
-                    data["x"], data["y"], self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT
-                )
-                pixel_points.append((px, py))
-
-            if len(pixel_points) >= 2:
-                points_array = np.array(pixel_points, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(
-                    overview_img, [points_array], isClosed=False, color=traj_color, thickness=2
-                )
-            cv2.circle(overview_img, pixel_points[0], 3, traj_color, -1)
-            cv2.circle(overview_img, pixel_points[-1], 5, traj_color, -1)
-            end_px, end_py = pixel_points[-1]
-            cv2.putText(
-                overview_img,
-                f"{traj_id[:15]}(unmerged)",
-                (end_px + 5, end_py + 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                traj_color,
-                1,
-            )
-            unmatched_idx += 1
-
+        self._draw_trajectory_set(
+            overview_img, self.merged_finished_trajectories, self.MERGED_TRAJ_COLORS,
+            line_thickness=4, start_radius=5, end_radius=7, font_scale=0.6, font_thickness=2,
+            label_fn=lambda tid, fl: f"{tid[:15]}(merged)",
+        )
+        self._draw_trajectory_set(
+            overview_img, self.unmatched_trajectories, self.UNMATCHED_TRAJ_COLORS,
+            line_thickness=2, start_radius=3, end_radius=5, font_scale=0.6, font_thickness=1,
+            label_fn=lambda tid, fl: f"{tid[:15]}(unmerged)",
+        )
         cv2.putText(
-            overview_img,
-            "merged color | unmerged gray",
-            (20, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 0, 0),
-            2,
+            overview_img, "merged color | unmerged gray",
+            (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2,
         )
         return overview_img
 
@@ -898,7 +803,7 @@ class TrajectoryMerger:
         print("\n=== 开始轨迹融合匹配 ===")
         print(f"初始状态 - pool1有效轨迹数：{len(self.pool1)} | pool2有效轨迹数：{len(self.pool2)}")
         print(f"匹配误差阈值：{self.error_threshold}")
-        print(f"核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮")
+        print("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮")
 
         while True:
             src_traj_id, src_traj_data, src_pool_name, target_pool, target_pool_name = (
@@ -995,15 +900,14 @@ class TrajectoryMerger:
     def save_results(self) -> None:
         """保存最终的融合结果（保持JSON格式不变）。"""
         # ========== 【核心修复3：添加调试日志】 ==========
-        print(f"\n===== 本轮轨迹流向日志 =====")
+        print("\n===== 本轮轨迹流向日志 =====")
         print(f"1. 新生成的融合轨迹（merged_temp）：{list(self.merged_trajectories_temp.keys())}")
         print(f"2. 未匹配的融合轨迹（merged_finished）：{list(self.merged_finished_trajectories.keys())}")
         print(f"3. 未匹配的原始轨迹（unmatched）：{list(self.unmatched_trajectories.keys())}")
-        print(f"4. 已匹配的旧轨迹（将被剔除）：")
+        print("4. 已匹配的旧轨迹（将被剔除）：")
         for traj_id, status in {**self.pool1_status, **self.pool2_status}.items():
             if status in [self.TRAJ_STATUS_ORIGINAL_MATCHED, self.TRAJ_STATUS_MERGED_MATCHED]:
                 print(f"   - {traj_id} (状态: {status})")
-        """保存最终的融合结果（保持JSON格式不变）。"""
         merged_overview_img = self.draw_final_merged_trajectories()
         if merged_overview_img.size > 0:
             cv2.imwrite(self.MERGED_OVERVIEW_OUTPUT_PATH, merged_overview_img)
@@ -1134,6 +1038,7 @@ class TrajectoryMerger:
 
         return collected
 
+
 class SerialTrajectoryMerger:
     def __init__(
         self,
@@ -1180,7 +1085,6 @@ class SerialTrajectoryMerger:
 
         self.total_fusion_count = 0
         self.global_merged_counter = 1
-    
 
     def ensure_dir(self, path: str) -> None:
         """确保目录存在。"""
@@ -1232,9 +1136,11 @@ class SerialTrajectoryMerger:
 
     def run_serial_fusion(self) -> Dict[str, str]:
         """执行串行融合（核心：同轮同视角同帧禁止重复融合+跨轮标记失效）。"""
+        t0 = time.time()
         pool_num = len(self.all_json_paths)
+        logger.info(f"[traj_match] 开始串行融合 | 轨迹池数: {pool_num}")
         print(f"\n===================== 开始串行融合（共{pool_num}个轨迹池）=====================")
-        print(f"核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮 4. 最终仅保留融合过的轨迹")
+        print("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮 4. 最终仅保留融合过的轨迹")
 
         # 初始化第一轮输入
         current_json_path = self.all_json_paths[0]
@@ -1274,21 +1180,21 @@ class SerialTrajectoryMerger:
             current_json_path = round_output_paths["merged_json"]
             # 视频路径复用（或可改为合并标识，不影响轨迹融合）
             current_video_path = f"merged_round_{current_fusion_round}_video"
-            
+
             current_fusion_round += 1
 
         # ========== 【核心修复2：调整缩进】 ==========
         # 处理最终结果的逻辑移到循环外（循环结束后执行）
         print("\n===================== 处理最终融合结果 =====================")
-        
+
         # ========== 【核心修复3：修正读取最后一轮数据的路径】 ==========
         # 读取最后一轮（round3）融合生成的 merged_trajectories.json，而非初始JSON
         if not os.path.exists(current_json_path):
             raise FileNotFoundError(f"最后一轮融合结果文件不存在：{current_json_path}")
-        
+
         with open(current_json_path, "r", encoding="utf-8") as f:
             last_round_data = json.load(f)
-        
+
         # 从最后一轮结果中提取所有融合轨迹（all_merged_trajectories 是 TrajectoryMerger 保存的全量融合轨迹）
         final_all_trajs_raw = last_round_data.get("all_merged_trajectories", {})
         final_all_trajs = self.normalize_traj_keys_to_int(final_all_trajs_raw)
@@ -1358,11 +1264,14 @@ class SerialTrajectoryMerger:
             )
 
         print(f"最终融合结果JSON已保存：{self.final_merged_json}")
-        print(f"\n=== 串行融合完成 ===")
+        print("\n=== 串行融合完成 ===")
         print(f"累计融合次数：{self.total_fusion_count}")
         print(f"最终保留融合轨迹数（至少融合过一次）：{len(final_merged_trajs)}")
         print(f"最终未匹配轨迹数（本轮）：{len(final_unmatched_trajs)}")
-        
+
+        elapsed = time.time() - t0
+        logger.info(
+            f"[traj_match] 串行融合完成 | 融合次数: {self.total_fusion_count} | "
+            f"融合轨迹: {len(final_merged_trajs)} | 未匹配: {len(final_unmatched_trajs)} | 耗时 {elapsed:.1f}s"
+        )
         return self.final_output_paths
-
-

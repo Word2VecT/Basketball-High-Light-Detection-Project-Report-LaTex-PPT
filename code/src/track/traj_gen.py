@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
@@ -8,6 +10,8 @@ import cv2
 from deep_sort_realtime.deepsort_tracker import DeepSort
 import numpy as np
 from ultralytics import YOLO
+
+logger = logging.getLogger("track.traj_gen")
 
 # 屏蔽 ultralytics 的默认日志输出
 warnings.filterwarnings("ignore")
@@ -146,7 +150,7 @@ class PlayerTrajectoryTracker:
 
         # 初始化核心变量
         self.tracker = DeepSort(max_age=15, n_init=2, max_cosine_distance=0.3)
-        self.person_model = YOLO(self.config["PERSON_MODEL_PATH"])
+        self.person_model = None  # lazily loaded or shared via set_person_model
 
         # 加载单应性矩阵
         try:
@@ -160,6 +164,11 @@ class PlayerTrajectoryTracker:
         self.player_trajectories: Dict[int, List[Tuple[int, List[int], float]]] = {}
         # player_ground_trajectories: {track_id: [(frame, (x, y)), ...]}
         self.player_ground_trajectories: Dict[int, List[Tuple[int, Tuple[float, float]]]] = {}
+
+    def _ensure_model(self) -> None:
+        """确保 YOLO 模型已加载（懒加载或外部注入）。"""
+        if self.person_model is None:
+            self.person_model = YOLO(self.config["PERSON_MODEL_PATH"])
 
         # 俯视图尺寸
         self.TOP_VIEW_WIDTH = int(self.config["COURT_TOTAL_X"] * self.config["SCALE_RATIO"])
@@ -546,12 +555,7 @@ class PlayerTrajectoryTracker:
                 for box in result.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
                     conf = box.conf[0].cpu().numpy()
-                    cls = box.cls[0].cpu().numpy()
-                    if (
-                        int(cls) == 0
-                        and conf > self.config["DETECTION_CONF_THRESH"]
-                        and (y2 - y1) > self.config["MIN_BOX_HEIGHT"]
-                    ):
+                    if (y2 - y1) > self.config["MIN_BOX_HEIGHT"]:
                         detections.append(([x1, y1, x2 - x1, y2 - y1], conf, "person"))
 
             tracks = self.tracker.update_tracks(detections, frame=frame)
@@ -572,18 +576,20 @@ class PlayerTrajectoryTracker:
                     self.player_ground_trajectories[track_id] = []
                 self.player_ground_trajectories[track_id].append((frame_count, (ground_X, ground_Y)))
 
-                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
-                cv2.putText(
-                    frame,
-                    f"ID: {track_id}",
-                    (bbox[0], bbox[1] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    self.config["ID_FONT_SCALE"],
-                    (0, 255, 0),
-                    self.config["ID_FONT_THICKNESS"],
-                )
-
             if out is not None:
+                for track in tracks:
+                    ltrb = track.to_ltrb()
+                    bbox = [int(ltrb[0]), int(ltrb[1]), int(ltrb[2]), int(ltrb[3])]
+                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+                    cv2.putText(
+                        frame,
+                        f"ID: {track.track_id}",
+                        (bbox[0], bbox[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        self.config["ID_FONT_SCALE"],
+                        (0, 255, 0),
+                        self.config["ID_FONT_THICKNESS"],
+                    )
                 out.write(frame)
 
             if (frame_count - start_frame) % 100 == 0:
@@ -603,6 +609,7 @@ class PlayerTrajectoryTracker:
 
     def process(self) -> None:
         """处理当前视频的主入口。"""
+        self._ensure_model()
         print(f"\n=== 开始处理视频{self.video_folder} ===")
         print(f"视频{self.video_folder}：起始帧：{self.config['START_FRAME']}")
         print(f"视频{self.video_folder}：处理时长：{self.config['PROCESS_SECONDS']} 秒")
@@ -640,19 +647,25 @@ def batch_process_videos(
     """
     common_config = common_config or {}
     video_output_paths = []
+    t0 = time.time()
 
-    print("\n=== 开始批量处理视频 ===")
-    print(f"总输出根路径：{output_root_dir}")
-    print(f"待处理视频数量：{len(video_configs)}")
+    logger.info(f"[traj_gen] 开始批量处理 {len(video_configs)} 个视频 | 输出: {output_root_dir}")
+
+    shared_model = None
+    model_path = common_config.get("PERSON_MODEL_PATH")
+    if model_path:
+        logger.info(f"[traj_gen] 预加载共享 YOLO 模型: {model_path}")
+        shared_model = YOLO(model_path)
 
     for idx, video_config in enumerate(video_configs, start=1):
         print(f"\n==================== 开始处理第{idx}个视频 ====================")
         try:
-            # 合并共用配置和当前视频专属配置（视频配置优先级更高）
             final_config = common_config.copy()
             final_config.update(video_config)
 
             tracker = PlayerTrajectoryTracker(output_root_dir=output_root_dir, video_index=idx, config=final_config)
+            if shared_model is not None:
+                tracker.person_model = shared_model
 
             tracker.process()
 
@@ -668,6 +681,9 @@ def batch_process_videos(
             # 失败时仍记录路径（None），保证列表长度与视频数一致
             video_output_paths.append(None)
 
+    elapsed = time.time() - t0
+    ok_count = sum(1 for p in video_output_paths if p is not None)
+    logger.info(f"[traj_gen] 批量处理完成 | 成功 {ok_count}/{len(video_configs)} | 耗时 {elapsed:.1f}s")
     return video_output_paths
 
 
