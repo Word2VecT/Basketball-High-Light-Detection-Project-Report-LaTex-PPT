@@ -624,9 +624,9 @@ class EnhancedUnmatchedTrajectorySegmenter:
         log_file = open(log_path, 'w', encoding='utf-8')
         multi_id_stats_file = open(os.path.join(self.output_dir, "multi_id_stats.txt"),
                                  'w', encoding='utf-8')
-        try:
-            log_file.write("轨迹分割处理日志（带扩展逻辑版）\n")
-            log_file.write("=" * 60 + "\n\n")
+        
+        log_file.write("轨迹分割处理日志（带扩展逻辑版）\n")
+        log_file.write("=" * 60 + "\n\n")
 
         # 存储结果
         final_trajectories = {}
@@ -727,9 +727,9 @@ class EnhancedUnmatchedTrajectorySegmenter:
                 log_file.write(f"  警告: 可视化出错: {e}\n")
 
             self.stats['trajectories_processed'] += 1
-        finally:
-            log_file.close()
-            multi_id_stats_file.close()
+
+        log_file.close()
+        multi_id_stats_file.close()
 
         save_traj_path = self.save_results(final_trajectories)
         self.generate_report()

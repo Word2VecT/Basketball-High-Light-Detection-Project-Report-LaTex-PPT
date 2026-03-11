@@ -1299,7 +1299,7 @@ def refine_pipe(
 
 if __name__ == "__main__":
     input_json = (
-        "/data/ljy23/project/code/output/traj_reid/traj_reid/merged_trajectories_with_player_id_1200-3200frames.json"
+        "/data/ljy23/project/code/test1/traj_reid/traj_reid/frame_player_ids_3200-3900frames.json"
     )
-    id_json = "/data/ljy23/project/code/output/traj_reid/traj_reid/frame_player_ids_1200-3200frames.json"
-    refine_pipe(input_json=input_json, id_json_path=id_json, output_dir="./test/traj_refined")
+    id_json = "/data/ljy23/project/code/test1/traj_reid/traj_reid/frame_player_ids_3200-3900frames.json"
+    refine_pipe(input_json=input_json, id_json_path=id_json, output_dir="./test1/traj_refined")

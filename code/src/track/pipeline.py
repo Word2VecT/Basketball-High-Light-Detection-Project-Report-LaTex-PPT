@@ -317,4 +317,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.exception("Pipeline 运行失败，详细报错如下")
+        raise
