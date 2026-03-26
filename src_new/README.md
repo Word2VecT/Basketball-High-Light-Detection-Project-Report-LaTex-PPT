@@ -19,3 +19,10 @@
 > export HF_ENDPOINT="https://hf-mirror.com"  # 如果有网络问题
 > 
 > python -m src.track.pipeline
+
+# demo
+一个效果一般的demo，缺失了很多轨迹，主要是想测试能否跑通获得初步效果
+
+# Todo
+- [ ] 各视角线程和主线程实现异步
+- [ ] 追踪和reid的逻辑有重叠，能不能检测+reid，或追踪+极少帧的reid
