@@ -1,0 +1,117 @@
+2026-03-25 22:23:25 [INFO] track.pipeline - Pipeline 启动 | 输出目录: ./test1
+2026-03-25 22:23:25 [INFO] track.pipeline - GPU 配置: CUDA_VISIBLE_DEVICES=7,8,9
+2026-03-25 22:23:30 [INFO] track.pipeline - ============================================================
+2026-03-25 22:23:30 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹生成与ReID (帧3200~3400)
+2026-03-25 22:23:30 [INFO] track.pipeline - ============================================================
+2026-03-25 22:23:30 [INFO] track.traj_gen - [traj_gen] 开始批量处理 4 个视频 | 输出: ./test1/segment_000_frames_3200_3400
+2026-03-25 22:23:30 [INFO] track.traj_gen - [traj_gen] 每个线程将加载自己的 YOLO 模型: /data/ljy23/project/track/yolov12/model/yolo26n.pt
+2026-03-25 22:42:51 [INFO] track.traj_gen - [traj_gen] 批量处理完成 | 成功 4/4 | 耗时 1161.2s
+2026-03-25 22:42:52 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 22:42:52 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹生成与ReID (帧3200~3400) | 耗时 19分21.4秒 | 视频数=4
+2026-03-25 22:42:52 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 22:42:52 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:52 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹匹配
+2026-03-25 22:42:52 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:52 [INFO] track.traj_match - [traj_match] 开始串行融合 | 轨迹池数: 4
+2026-03-25 22:42:53 [INFO] track.traj_match - [traj_match] 串行融合完成 | 融合次数: 7 | 融合轨迹: 5 | 未匹配: 4 | 耗时 1.5s
+2026-03-25 22:42:53 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 22:42:53 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹匹配 | 耗时 0分1.6秒 | 输出路径={'traj_match_dir': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match', 'merged_json': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match/merged_trajectories.json', 'merged_overview_img': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match/Merged_Trajectories_Overview.png', 'all_traj_overview_img': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match/All_Trajectories_Overview.png', 'unmatched_overview_img': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match/Unmatched_Trajectories_Overview.png', 'single_merged_dir': './test1/segment_000_frames_3200_3400/traj_match/final_traj_match/single_merged_trajectories'}
+2026-03-25 22:42:53 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 22:42:53 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:53 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹平滑
+2026-03-25 22:42:53 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:53 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 开始 | 输入: ./test1/segment_000_frames_3200_3400/traj_match/final_traj_match/merged_trajectories.json
+2026-03-25 22:42:54 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 完成 | 轨迹数: 5 | 耗时 0.5s | 输出: ./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 22:42:54 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 22:42:54 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹平滑 | 耗时 0分0.5秒 | 输出路径=./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 22:42:54 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 22:42:54 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:54 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹可视化与拼接
+2026-03-25 22:42:54 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:54 [INFO] track.traj_vis - [traj_vis] 开始生成拼接视频 | 帧范围: 3200~3400
+2026-03-25 22:42:57 [INFO] track.traj_vis - [traj_vis] 拼接视频生成完成 | 耗时 3.6s | 输出: ./test1/segment_000_frames_3200_3400/traj_vis/stitch_video_single_json/A1-1_camera1_undistorted_stitch_3200-3400frames_all_filled.mp4
+2026-03-25 22:42:57 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 22:42:57 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹可视化与拼接 | 耗时 0分3.6秒
+2026-03-25 22:42:57 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 22:42:57 [INFO] track.pipeline - ============================================================
+2026-03-25 22:42:57 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹ReID可视化
+2026-03-25 22:42:57 [INFO] track.pipeline - ============================================================
+2026-03-25 22:43:22 [INFO] track.traj_reid - [traj_reid] 开始 ReID | 模式: face | 帧范围: 3200~3400
+2026-03-25 22:43:23 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 22:43:23 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹ReID可视化 | 耗时 0分25.4秒
+2026-03-25 22:43:23 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 22:43:23 [INFO] track.pipeline - ============================================================
+2026-03-25 22:43:23 [INFO] track.pipeline - Pipeline 全部完成 | 总耗时 0时19分57.8秒
+2026-03-25 22:43:23 [INFO] track.pipeline - 输出目录: ./test1
+2026-03-25 22:43:23 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:27 [INFO] track.pipeline - Pipeline 启动 | 输出目录: ./test1
+2026-03-25 23:02:27 [INFO] track.pipeline - GPU 配置: CUDA_VISIBLE_DEVICES=7,8,9
+2026-03-25 23:02:37 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:37 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹平滑
+2026-03-25 23:02:37 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:37 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 开始 | 输入: ./test1/segment_000_frames_3200_3400/traj_match/final_traj_match/merged_trajectories.json
+2026-03-25 23:02:37 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 完成 | 轨迹数: 5 | 耗时 0.1s | 输出: ./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 23:02:37 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:02:37 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹平滑 | 耗时 0分0.1秒 | 输出路径=./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 23:02:37 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:02:37 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:37 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹可视化与拼接
+2026-03-25 23:02:37 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:37 [INFO] track.traj_vis - [traj_vis] 开始生成拼接视频 | 帧范围: 3200~3400
+2026-03-25 23:02:45 [INFO] track.traj_vis - [traj_vis] 拼接视频生成完成 | 耗时 8.1s | 输出: ./test1/segment_000_frames_3200_3400/traj_vis/stitch_video_single_json/A1-1_camera1_undistorted_stitch_3200-3400frames_all_filled.mp4
+2026-03-25 23:02:45 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:02:45 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹可视化与拼接 | 耗时 0分8.2秒
+2026-03-25 23:02:45 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:02:45 [INFO] track.pipeline - ============================================================
+2026-03-25 23:02:45 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹ReID可视化
+2026-03-25 23:02:45 [INFO] track.pipeline - ============================================================
+2026-03-25 23:03:09 [INFO] track.traj_reid - [traj_reid] 开始 ReID | 模式: face | 帧范围: 3200~3400
+2026-03-25 23:04:17 [INFO] track.traj_reid - [traj_reid] ReID 完成 | 轨迹 5 条 | 匹配 5 | 未匹配 0 | 统计 {'face_only': 0, 'siglip_fallback': 0, 'both_failed': 0, 'face_low_sim': 0} | 耗时 68.6s
+2026-03-25 23:04:17 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:04:17 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹ReID可视化 | 耗时 1分31.7秒
+2026-03-25 23:04:17 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:04:17 [INFO] track.pipeline - ============================================================
+2026-03-25 23:04:17 [INFO] track.pipeline - Pipeline 全部完成 | 总耗时 0时1分49.9秒
+2026-03-25 23:04:17 [INFO] track.pipeline - 输出目录: ./test1
+2026-03-25 23:04:17 [INFO] track.pipeline - ============================================================
+2026-03-25 23:33:40 [INFO] track.pipeline - Pipeline 启动 | 输出目录: ./test1
+2026-03-25 23:33:40 [INFO] track.pipeline - GPU 配置: CUDA_VISIBLE_DEVICES=7,8,9
+2026-03-25 23:33:49 [INFO] track.pipeline - ============================================================
+2026-03-25 23:33:49 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹ReID可视化
+2026-03-25 23:33:49 [INFO] track.pipeline - ============================================================
+2026-03-25 23:33:55 [INFO] track.traj_reid - [traj_reid] 开始 ReID | 模式: face | 帧范围: 3200~3400
+2026-03-25 23:34:10 [INFO] track.traj_reid - [traj_reid] ReID 完成 | 轨迹 5 条 | 匹配 5 | 未匹配 0 | 统计 {'face_only': 0, 'siglip_fallback': 0, 'both_failed': 0, 'face_low_sim': 0} | 耗时 14.8s
+2026-03-25 23:34:10 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:34:10 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹ReID可视化 | 耗时 0分20.9秒
+2026-03-25 23:34:10 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:34:10 [INFO] track.pipeline - ============================================================
+2026-03-25 23:34:10 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹平滑
+2026-03-25 23:34:10 [INFO] track.pipeline - ============================================================
+2026-03-25 23:34:10 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 开始 | 输入: ./test1/segment_000_frames_3200_3400/traj_match/final_traj_match/merged_trajectories.json
+2026-03-25 23:34:10 [INFO] track.traj_smooth - [traj_smooth] MergedAdaptiveJumpRemover 完成 | 轨迹数: 5 | 耗时 0.1s | 输出: ./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 23:34:10 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:34:10 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹平滑 | 耗时 0分0.1秒 | 输出路径=./test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json
+2026-03-25 23:34:10 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:34:10 [INFO] track.pipeline - ============================================================
+2026-03-25 23:34:10 [INFO] track.pipeline - ▶ 阶段开始: 片段1/1 - 轨迹可视化与拼接
+2026-03-25 23:34:10 [INFO] track.pipeline - ============================================================
+2026-03-25 23:34:10 [INFO] track.traj_vis - [traj_vis] 开始生成拼接视频 | 帧范围: 3200~3400
+2026-03-25 23:34:14 [INFO] track.traj_vis - [traj_vis] 拼接视频生成完成 | 耗时 3.5s | 输出: ./test1/segment_000_frames_3200_3400/traj_vis/stitch_video_single_json/A1-1_camera1_undistorted_stitch_3200-3400frames_all_filled.mp4
+2026-03-25 23:34:14 [INFO] track.pipeline - ------------------------------------------------------------
+2026-03-25 23:34:14 [INFO] track.pipeline - ✔ 阶段完成: 片段1/1 - 轨迹可视化与拼接 | 耗时 0分3.9秒
+2026-03-25 23:34:14 [INFO] track.pipeline - ------------------------------------------------------------
+
+2026-03-25 23:34:14 [INFO] track.pipeline - ============================================================
+2026-03-25 23:34:14 [INFO] track.pipeline - Pipeline 全部完成 | 总耗时 0时0分33.2秒
+2026-03-25 23:34:14 [INFO] track.pipeline - 输出目录: ./test1
+2026-03-25 23:34:14 [INFO] track.pipeline - ============================================================

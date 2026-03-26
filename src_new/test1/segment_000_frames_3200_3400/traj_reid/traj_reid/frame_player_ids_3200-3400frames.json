@@ -1,0 +1,1072 @@
+{
+    "frame_player_ids": {
+        "json_0_serial_track_2": {
+            "main_player_id": "03",
+            "frames": {
+                "3380": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5928186226498602
+                    }
+                },
+                "3385": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": true,
+                        "match_type": "multi_face",
+                        "similarity": 0.1553969831657961
+                    }
+                },
+                "3390": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.07292520626661492
+                    }
+                },
+                "3395": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5915899663472188
+                    }
+                }
+            }
+        },
+        "json_0_serial_track_5": {
+            "main_player_id": "04",
+            "frames": {
+                "3360": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "01"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3508550988691061
+                    }
+                },
+                "3365": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4424094107332305
+                    }
+                },
+                "3370": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "01"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.38868231076469517
+                    }
+                },
+                "3375": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5535776286149342
+                    }
+                },
+                "3380": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4949406636416067
+                    }
+                },
+                "3385": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5744553467867812
+                    }
+                },
+                "3390": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5366305247411188
+                    }
+                },
+                "3395": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "01"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.14344177064148322
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5506304397885649
+                    }
+                }
+            }
+        },
+        "json_0_serial_track_3": {
+            "main_player_id": "05",
+            "frames": {
+                "3325": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5418046612930756
+                    }
+                },
+                "3330": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3095594091437325
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4864013586876786
+                    }
+                },
+                "3335": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.6031235267443911
+                    }
+                },
+                "3340": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.11154810828837168
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.47368256714196355
+                    }
+                },
+                "3345": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5394069722224368
+                    }
+                },
+                "3350": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.43661230970324294
+                    }
+                },
+                "3355": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5771186960305565
+                    }
+                },
+                "3360": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.6259141107279701
+                    }
+                },
+                "3365": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5259835882270434
+                    }
+                },
+                "3370": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5999068017024348
+                    }
+                },
+                "3375": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5864137580126333
+                    }
+                },
+                "3380": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4137101852126581
+                    }
+                },
+                "3385": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4550227637558024
+                    }
+                },
+                "3390": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.44333597438930966
+                    }
+                },
+                "3395": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.44812482486628746
+                    }
+                }
+            }
+        },
+        "json_0_serial_track_7": {
+            "main_player_id": "06",
+            "frames": {
+                "3320": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.48044577235184577
+                    }
+                },
+                "3325": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5057681787702546
+                    }
+                },
+                "3330": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.43977076007255933
+                    }
+                },
+                "3335": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.46553007962109155
+                    }
+                },
+                "3340": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2658016884408286
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2224816058458059
+                    }
+                },
+                "3345": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.13209025252080075
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.336011269068763
+                    }
+                },
+                "3350": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.20094680663871406
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2822958472499938
+                    }
+                },
+                "3355": {
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.39277009282314057
+                    }
+                },
+                "3360": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.31183896209543943
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.32998395061779373
+                    }
+                },
+                "3365": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2731685896724627
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3857927387914664
+                    }
+                },
+                "3370": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "01"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.16386167819846242
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3998696524169689
+                    }
+                },
+                "3375": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3087991072825874
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3629545754242824
+                    }
+                },
+                "3380": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.32979442043220336
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.1620205327336477
+                    }
+                },
+                "3385": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.34716780984072937
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.28013005274030733
+                    }
+                },
+                "3390": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3592409777003962
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.37913712310014347
+                    }
+                },
+                "3395": {
+                    "A2-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3817252488836735
+                    },
+                    "A1-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.29192987481261945
+                    }
+                }
+            }
+        },
+        "json_0_serial_track_8": {
+            "main_player_id": "02",
+            "frames": {
+                "3200": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.31439752757241446
+                    }
+                },
+                "3205": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.43089149428511303
+                    }
+                },
+                "3210": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.29201962396978354
+                    }
+                },
+                "3215": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3045283263437918
+                    }
+                },
+                "3220": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2589717391375195
+                    }
+                },
+                "3230": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.42163918325112204
+                    }
+                },
+                "3235": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.23907049187458335
+                    }
+                },
+                "3240": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4697648876587979
+                    }
+                },
+                "3245": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.43962301629290124
+                    }
+                },
+                "3250": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.5145207096031748
+                    }
+                },
+                "3255": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4215075709893241
+                    }
+                },
+                "3260": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.46672522052915827
+                    }
+                },
+                "3265": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.35913419305054045
+                    }
+                },
+                "3270": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.38357407732162396
+                    }
+                },
+                "3275": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.29352869139843274
+                    }
+                },
+                "3280": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.15462875410388083
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.32491864524630576
+                    }
+                },
+                "3285": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.42516151344573905
+                    }
+                },
+                "3290": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.48501029380331634
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.1581354972393187
+                    }
+                },
+                "3295": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.41150270912338927
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.15381992859100738
+                    }
+                },
+                "3300": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.4404599706900916
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.24252012070251702
+                    }
+                },
+                "3305": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3593868162812136
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.27658623953411166
+                    }
+                },
+                "3310": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.32799660827206184
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.26531337743573313
+                    }
+                },
+                "3315": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.1861181845028455
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.17650472702915163
+                    }
+                },
+                "3320": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.17928824913848224
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.1279011488233811
+                    }
+                },
+                "3325": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.30844820326615874
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.14065126904420056
+                    }
+                },
+                "3330": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.11961364948653969
+                    }
+                },
+                "3335": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.20988697962776065
+                    }
+                },
+                "3340": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "06"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.3392053001490451
+                    }
+                },
+                "3350": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.21491332651542416
+                    }
+                },
+                "3355": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.20605596464838646
+                    }
+                },
+                "3360": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2458493827941124
+                    }
+                },
+                "3365": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": true,
+                        "match_type": "multi_face",
+                        "similarity": 0.19274017511090022
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "05"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2574437299058012
+                    }
+                },
+                "3370": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": true,
+                        "match_type": "multi_face",
+                        "similarity": 0.14813723180960692
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.040655217600130245
+                    }
+                },
+                "3375": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "04"
+                        ],
+                        "multi_face": true,
+                        "match_type": "multi_face",
+                        "similarity": 0.16472134026275617
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.07390900573889608
+                    }
+                },
+                "3380": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.10210101400782937
+                    }
+                },
+                "3385": {
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2098023504156485
+                    }
+                },
+                "3390": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "03"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.16690717413534206
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.18976294284809153
+                    }
+                },
+                "3395": {
+                    "B4-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.2987546043836953
+                    },
+                    "B3-1_camera1_undistorted.mp4": {
+                        "player_ids": [
+                            "02"
+                        ],
+                        "multi_face": false,
+                        "match_type": "face_only",
+                        "similarity": 0.12806136323349349
+                    }
+                }
+            }
+        }
+    },
+    "metadata": {
+        "frame_range": "3200-3400",
+        "operation_mode": "face",
+        "match_threshold": "70.0%",
+        "face_detection_mode": "fast",
+        "face_sim_threshold": 0.1,
+        "enable_siglip_fallback": false,
+        "total_trajectories": 5
+    }
+}
