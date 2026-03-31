@@ -225,8 +225,13 @@ class AdaptiveJumpRemover:
                 points = [(traj[str(f)]["x"], traj[str(f)]["y"]) for f in frames]
                 boxes = [traj[str(f)].get("box") for f in frames]
                 confs = [traj[str(f)].get("confidence") for f in frames]
+                player_ids = [traj[str(f)].get("player_id") for f in frames]
 
-                points, frames, boxes, confs, _ = self.detect_and_remove_jump(points, frames, boxes, confs)
+                points, frames, boxes, confs, removed_indices = self.detect_and_remove_jump(points, frames, boxes, confs)
+                # 同步移除player_ids中的对应索引
+                for idx in sorted(removed_indices, reverse=True):
+                    if idx < len(player_ids):
+                        player_ids.pop(idx)
 
                 pixel_pts = [(x * self.scale_ratio, y * self.scale_ratio) for x, y in points]
                 pixel_pts = self._filter(pixel_pts)
@@ -239,6 +244,9 @@ class AdaptiveJumpRemover:
                         "box": boxes[i],
                         "confidence": confs[i],
                     }
+                    # 保留player_id字段
+                    if player_ids[i] is not None:
+                        out[str(frames[i])]["player_id"] = player_ids[i]
 
                 processed[name] = out
 
@@ -599,6 +607,25 @@ class MergedAdaptiveJumpRemover:
             elif self._is_frame_key(key):
                 frame_data[key] = value
 
+        # 如果轨迹顶层没有player_id，尝试从帧级别提取
+        if player_id is None and frame_data:
+            # 统计所有帧中出现的player_id
+            player_id_counts = {}
+            valid_player_ids = []
+            for frame_info in frame_data.values():
+                if isinstance(frame_info, dict) and "player_id" in frame_info:
+                    pid = frame_info["player_id"]
+                    if pid != "未知":  # 过滤掉"未知"的player_id
+                        player_id_counts[pid] = player_id_counts.get(pid, 0) + 1
+                        valid_player_ids.append(pid)
+            
+            if player_id_counts:
+                # 选择出现次数最多的player_id
+                player_id = max(player_id_counts.items(), key=lambda x: x[1])[0]
+            elif valid_player_ids:
+                # 如果所有player_id都是"未知"，但有值，取第一个
+                player_id = valid_player_ids[0]
+
         return frame_data, player_id
 
     def _reconstruct_trajectory(self, frame_data: Dict, player_id: Optional[str]) -> Dict:
@@ -700,11 +727,18 @@ class MergedAdaptiveJumpRemover:
 
 if __name__ == "__main__":
     # 示例用法
-    smoother = MergedAdaptiveJumpRemover(
-        input_json_path="/data/ljy23/project/code/src/track/test/traj_refined/refined_trajectories/segmented_trajectories_refined_maxgap200_maxoverlap2000_linear.json",
-        output_json_path="./smooth.json",
-        vis_image_path="./smooth.png",
-        moving_average_window=20,
-        gaussian_sigma=1.0,
-    )
-    final_smooth = smoother.run()
+    # smoother = MergedAdaptiveJumpRemover(
+    #     input_json_path="/data/ljy23/project/code/test1/segment_000_frames_3200_3400/1/traj_gen/player_trajectory.json",
+    #     output_json_path="/data/ljy23/project/code/test1/segment_000_frames_3200_3400/1/traj_smooth/smoothed_trajectories.json",
+    #     vis_image_path="/data/ljy23/project/code/test1/segment_000_frames_3200_3400/1/traj_smooth/smoothed_trajectories.png",
+    #     moving_average_window=20,
+    #     gaussian_sigma=1.0,
+    # )
+    # final_smooth = smoother.run()
+    traj_json_path = "/data/ljy23/project/code/test1/segment_000_frames_3200_3400/1/traj_gen/player_trajectory.json"
+    smoother = AdaptiveJumpRemover(
+                        traj_gen_paths_list=[traj_json_path],
+                        output_json_name="smoothed_trajectory.json",
+                        input_is_json=True
+                    )
+    smoother.process_batch()

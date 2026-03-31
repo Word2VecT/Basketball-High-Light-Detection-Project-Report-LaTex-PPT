@@ -225,12 +225,17 @@ class TrajectoryMerger:
                     if "view" not in b:
                         b["view"] = view_name  # 新增：确保所有box都有视角标签
 
+                # 保留player_id和similarity信息
+                player_id = data.get("player_id", "未知")
+                similarity = float(data.get("similarity", 0.0))
                 formatted_traj[frame] = {
                     "x": x,
                     "y": y,
                     "confidence": confidence,
                     "box": boxes,
                     "view": view_name,  # 新增：轨迹级视角标签
+                    "player_id": player_id,
+                    "similarity": similarity,
                 }
             except (ValueError, TypeError, IndexError):
                 continue
@@ -303,6 +308,9 @@ class TrajectoryMerger:
         frame_conf_map = {f: traj_data[f]["confidence"] for f in original_frames}
         frame_box_map = {f: traj_data[f]["box"] for f in original_frames}
         frame_view_map = {f: traj_data[f]["view"] for f in original_frames}  # 新增：视角映射
+        # 新增：player_id映射
+        frame_player_id_map = {f: traj_data[f].get("player_id", "未知") for f in original_frames}
+        frame_similarity_map = {f: traj_data[f].get("similarity", 0.0) for f in original_frames}
 
         interpolated_traj = {}
         for current_frame in full_frames:
@@ -360,6 +368,9 @@ class TrajectoryMerger:
                 except (ValueError, TypeError):
                     pass
 
+            # 保留player_id信息，使用前一帧的player_id
+            player_id = frame_player_id_map[prev_frame]
+            similarity = frame_similarity_map[prev_frame]
             interpolated_traj[current_frame] = {
                 "x": interpolated_x,
                 "y": interpolated_y,
@@ -367,6 +378,8 @@ class TrajectoryMerger:
                 "box": interpolated_box,
                 "fusion_note": box_interp_dict["interpolation_note"],
                 "view": frame_view_map[prev_frame],  # 新增：插值轨迹的视角
+                "player_id": player_id,
+                "similarity": similarity,
             }
         return interpolated_traj
 
@@ -433,6 +446,20 @@ class TrajectoryMerger:
                 fused_x = weight_short * data_short["x"] + weight_long * data_long["x"]
                 fused_y = weight_short * data_short["y"] + weight_long * data_long["y"]
 
+                # 处理player_id信息
+                player_id_short = data_short.get("player_id", "未知")
+                player_id_long = data_long.get("player_id", "未知")
+                similarity_short = data_short.get("similarity", 0.0)
+                similarity_long = data_long.get("similarity", 0.0)
+                
+                # 使用置信度更高的player_id
+                if similarity_short >= similarity_long:
+                    fused_player_id = player_id_short
+                    fused_similarity = similarity_short
+                else:
+                    fused_player_id = player_id_long
+                    fused_similarity = similarity_long
+
                 fused_boxes = []
                 if data_short.get("box"):
                     box_short_marked = add_fused_mark(data_short["box"], f"{traj_long_id}({video_long_name})", short_view)
@@ -454,6 +481,8 @@ class TrajectoryMerger:
                     "confidence": (conf_short + conf_long) / 2,
                     "fusion_note": f"weighted by conf({conf_short:.2f}, {conf_long:.2f})",
                     "view": f"{short_view}+{long_view}",  # 新增：融合轨迹的视角组合
+                    "player_id": fused_player_id,
+                    "similarity": fused_similarity,
                 }
 
             elif data_short:
@@ -471,6 +500,8 @@ class TrajectoryMerger:
                     "confidence": data_short["confidence"],
                     "fusion_note": f"only from {traj_short_id}({video_short_name})",
                     "view": short_view,
+                    "player_id": data_short.get("player_id", "未知"),
+                    "similarity": data_short.get("similarity", 0.0),
                 }
 
             elif data_long:
@@ -488,6 +519,8 @@ class TrajectoryMerger:
                     "confidence": data_long["confidence"],
                     "fusion_note": f"only from {traj_long_id}({video_long_name})",
                     "view": long_view,
+                    "player_id": data_long.get("player_id", "未知"),
+                    "similarity": data_long.get("similarity", 0.0),
                 }
         return fused_id, fused_traj
 

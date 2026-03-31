@@ -53,7 +53,7 @@ class TrajectoryVideoStitcher:
         court_physical_width: float = 15.0,
         court_physical_height: float = 28.0,
         scale_ratio_m2px: int = 50,
-        court_bg_path: str = "../../assets/court__bg.png",
+        court_bg_path: str = "./assets/court__bg.png",
         interp_points_num: int = 10,
         half_court: bool = True,
         drop_unmatched: bool = False,
@@ -310,8 +310,10 @@ class TrajectoryVideoStitcher:
         unmatched_traj_count = 0  # 统计未匹配轨迹数量
 
         for traj_id, traj_info in traj_root.items():
+            print(traj_id)
+            # print(traj_inf)
             player_id = traj_info.get("player_id", "未匹配")
-
+            print(player_id)
             # 如果设置为舍弃未匹配轨迹，且当前轨迹未匹配，则跳过
             if self.drop_unmatched and player_id == "未匹配":
                 unmatched_traj_count += 1
@@ -786,11 +788,11 @@ if __name__ == "__main__":
 
         # 初始化拼接器，开启多帧断帧补齐
         stitcher = TrajectoryVideoStitcher(
-            single_json_path="/data/ljy23/project/code/src/track/smooth.json",
+            single_json_path="/data/ljy23/project/code/test1/segment_000_frames_3200_3400/traj_smooth/smoothed_trajectories.json",
             video_paths=VIDEO_PATHS,
-            output_root_dir="./debug",
-            start_frame=1500,
-            maxframe=2500,
+            output_root_dir="./test1/segment_000_frames_3200_3400/",
+            start_frame=3200,
+            maxframe=3400,
             fps=30,
             half_court=True,
             drop_unmatched=False,

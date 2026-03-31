@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib
@@ -23,6 +24,70 @@ from tqdm import tqdm  # 导入tqdm进度条库
 
 from .siglip import Qwen3VLMatcher, SigLIPMatcher
 
+# 模型池类
+class ModelPool:
+    """InsightFace模型池，用于管理多个模型实例"""
+    def __init__(self, pool_size=4):
+        self.pool = []
+        self.lock = threading.Lock()
+        self.pool_size = pool_size
+        
+        # 初始化模型池
+        print(f"初始化模型池，创建 {pool_size} 个 InsightFace 模型实例...")
+        for i in range(pool_size):
+            print(f"创建模型 {i+1}/{pool_size}...")
+            model = self._init_insightface_model()
+            self.pool.append(model)
+        print(f"模型池初始化完成，共 {len(self.pool)} 个模型")
+    
+    def _init_insightface_model(self):
+        """初始化单个InsightFace模型"""
+        # 屏蔽 InsightFace 模型加载的日志
+        import logging
+        import sys
+        
+        # 临时设置日志级别为 ERROR
+        original_log_level = logging.getLogger().getEffectiveLevel()
+        logging.basicConfig(level=logging.ERROR)
+        
+        # 临时重定向标准输出和标准错误
+        class NullDevice:
+            def write(self, s):
+                pass
+            def flush(self):
+                pass
+        
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = NullDevice()
+        sys.stderr = NullDevice()
+        
+        try:
+            # 使用轻量模型
+            face_analyzer = insightface.app.FaceAnalysis(allowed_modules=["detection", "recognition"])
+            face_analyzer.prepare(ctx_id=1)
+        finally:
+            # 恢复标准输出和标准错误
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            
+            # 恢复原始日志级别
+            logging.getLogger().setLevel(original_log_level)
+        
+        return face_analyzer
+    
+    def get_model(self):
+        """获取一个空闲的模型"""
+        with self.lock:
+            if not self.pool:
+                raise Exception("模型池为空")
+            return self.pool.pop()
+    
+    def release_model(self, model):
+        """释放模型回池"""
+        with self.lock:
+            self.pool.append(model)
+
 
 class TrajectoryReIDVisualizer:
     """
@@ -36,7 +101,7 @@ class TrajectoryReIDVisualizer:
 
     def __init__(
         self,
-        json_paths: List[str],
+        json_paths: List[str] = None,
         output_dir: Optional[str] = None,
         video_path_mapping: Dict[str, str] = None,
         start_frame: int = None,
@@ -48,6 +113,12 @@ class TrajectoryReIDVisualizer:
         face_detection_mode: str = "fast",
         face_sim_threshold: float = 0.1,  # 新增：人脸相似度阈值，低于此值则使用SigLIP
         enable_siglip_fallback: bool = False,  # 新增：是否启用SigLIP备选
+        model_pool: Optional[ModelPool] = None,  # 新增：模型池
+        batch_size: int = 50,  # 新增：批量处理大小
+        gap: int = 5,  # 新增：跳帧间隔，0表示不跳帧
+        reid_dirs: List[str] = None,  # 新增：之前的ReID结果目录列表
+        video_paths: List[str] = None,  # 新增：视频路径列表
+        traj_path: str = None,  # 新增：轨迹文件路径
     ):
         """
         初始化 ReID 可视化器。
@@ -65,13 +136,28 @@ class TrajectoryReIDVisualizer:
             face_detection_mode: 人脸检测模式，"accurate"（精确，识别所有box）或 "fast"（快速，只识别第一个有效box）。
             face_sim_threshold: 人脸相似度阈值，低于此值则使用SigLIP进行二次识别。
             enable_siglip_fallback: 是否启用SigLIP备选识别。
+            model_pool: 模型池实例，用于管理InsightFace模型。
+            batch_size: 批量处理大小，默认为5。
+            gap: 跳帧间隔，0表示不跳帧，默认为0。
+            reid_dirs: 之前的ReID结果目录列表。
+            video_paths: 视频路径列表。
+            traj_path: 轨迹文件路径。
         """
         # ===================== 核心配置：路径与帧范围 =====================
-        self.json_paths = json_paths
-        for path in self.json_paths:
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Matcher JSON不存在: {path}")
-        print(f"✅ 加载Matcher JSON列表({len(json_paths)}个): {self.json_paths}")
+        if traj_path:
+            # 使用单个轨迹文件路径
+            self.json_paths = [traj_path]
+            for path in self.json_paths:
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"轨迹文件不存在: {path}")
+            print(f"✅ 加载轨迹文件: {self.json_paths}")
+        else:
+            # 使用轨迹 JSON 文件路径列表
+            self.json_paths = json_paths or []
+            for path in self.json_paths:
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"Matcher JSON不存在: {path}")
+            print(f"✅ 加载Matcher JSON列表({len(self.json_paths)}个): {self.json_paths}")
 
         self.base_output_dir = output_dir or os.path.dirname(os.path.dirname(os.path.dirname(self.json_paths[0])))
         self.output_dir = os.path.join(self.base_output_dir, "traj_reid")
@@ -127,6 +213,17 @@ class TrajectoryReIDVisualizer:
         # 新增：融合识别配置
         self.FACE_SIM_THRESHOLD = max(0.1, min(1.0, face_sim_threshold))  # 人脸相似度阈值
         self.ENABLE_SIGLIP_FALLBACK = enable_siglip_fallback and operation_mode == "face"
+
+        # 新增：模型池
+        self.model_pool = model_pool
+        # 新增：批量处理参数
+        self.batch_size = batch_size
+        self.gap = gap
+
+        # 新增：之前的ReID结果目录
+        self.reid_dirs = reid_dirs or []
+        # 新增：视频路径列表
+        self.video_paths = video_paths or []
 
         if self.SAVE_FAILED_FACES:
             self.ensure_dir(self.FAILED_FACES_DIR)
@@ -197,9 +294,22 @@ class TrajectoryReIDVisualizer:
         elif self.operation_mode == "face":
             # Face模式：原逻辑
             self.face_det_model = YOLO(self.FACE_DET_MODEL_PATH)
-            self.face_analyzer = insightface.app.FaceAnalysis(allowed_modules=["detection", "recognition"])
-            self.face_analyzer.prepare(ctx_id=0)
-            self.reference_faces = self.load_reference_faces()
+            
+            # 使用模型池或创建单个模型
+            if self.model_pool:
+                print("✅ Face模式：使用模型池中的InsightFace模型")
+                # 临时获取一个模型来加载参考人脸
+                temp_model = self.model_pool.get_model()
+                self.face_analyzer = temp_model
+                self.reference_faces = self.load_reference_faces()
+                # 释放临时模型
+                self.model_pool.release_model(temp_model)
+            else:
+                print("✅ Face模式：创建单个InsightFace模型")
+                self.face_analyzer = insightface.app.FaceAnalysis(allowed_modules=["detection", "recognition"])
+                self.face_analyzer.prepare(ctx_id=0)
+                self.reference_faces = self.load_reference_faces()
+            
             print(f"✅ Face模式：加载参考人脸数 {len(self.reference_faces)}")
             print(f"✅ Face模式：人脸检测模式: {self.FACE_DETECTION_MODE}")
 
@@ -279,6 +389,27 @@ class TrajectoryReIDVisualizer:
                 )
         print(f"✅ 加载了 {len(reference_faces)} 个参考人脸")
         return reference_faces
+
+    def load_previous_reid_results(self) -> Dict[str, str]:
+        """加载之前的ReID结果。"""
+        reid_results = {}
+        if not self.reid_dirs:
+            print("⚠️  没有提供之前的ReID结果目录，将进行新的ReID处理")
+            return reid_results
+
+        print("📥 加载之前的ReID结果...")
+        for reid_dir in self.reid_dirs:
+            reid_json_path =reid_dir
+            if os.path.exists(reid_json_path):
+                reid_data = self.load_json(reid_json_path)
+                for track_id, (player_id, similarity) in reid_data.items():
+                    reid_results[track_id] = player_id
+                print(f"✅ 从 {reid_json_path} 加载了 {len(reid_data)} 个ReID结果")
+            else:
+                print(f"⚠️  未找到ReID结果文件: {reid_json_path}")
+
+        print(f"✅ 总共加载了 {len(reid_results)} 个ReID结果")
+        return reid_results
 
     def read_video_specific_frame(self, video_path: str, frame_idx: int) -> Optional[np.ndarray]:
         """读取视频指定帧（带 VideoCapture 缓存，避免重复打开/关闭）。"""
@@ -508,6 +639,7 @@ class TrajectoryReIDVisualizer:
             json_data = self.load_json(json_path)
             current_trajs = json_data.get("final_merged_finished_trajectories", {})
             for traj_id, traj_data in current_trajs.items():
+                # 为了处理多个JSON文件的情况，仍然使用唯一标识符
                 unique_traj_id = f"json_{json_idx}_{traj_id}"
                 all_trajs[unique_traj_id] = traj_data
 
@@ -547,11 +679,13 @@ class TrajectoryReIDVisualizer:
                 if not valid_boxes:
                     continue
 
-                # 保存frame_info：包含所有有效的box
+                # 保存frame_info：包含所有有效的box和player_id
                 formatted_traj[frame_num] = {
                     "boxes": valid_boxes,
                     "x": frame_info.get("x", 0.0),
                     "y": frame_info.get("y", 0.0),
+                    "player_id": frame_info.get("player_id", "未知"),
+                    "similarity": frame_info.get("similarity", 0.0),
                 }
 
                 if (meter_point := self.parse_traj_meters(frame_info)) is not None:
@@ -622,36 +756,48 @@ class TrajectoryReIDVisualizer:
                     print(f"警告: SigLIP备选识别失败: {e}")
             return matches
 
-        for fb in face_boxes:
-            fx1, fy1, fx2, fy2 = fb
-            new_x1, new_y1, new_x2, new_y2 = self.expand_bbox_center(
-                x1 + fx1, y1 + fy1, x1 + fx2, y1 + fy2,
-                frame.shape[1], frame.shape[0], self.EXPAND_RATIO,
-            )
-            face_roi = frame[new_y1:new_y2, new_x1:new_x2]
-            if face_roi.size == 0:
-                continue
+        # 获取InsightFace模型
+        face_analyzer = None
+        if self.model_pool:
+            face_analyzer = self.model_pool.get_model()
+        else:
+            face_analyzer = self.face_analyzer
 
-            faces = self.face_analyzer.get(face_roi)
-            if len(faces) == 0:
-                continue
-            feat = normalize([faces[0].embedding])[0]
-
-            max_sim, best_player = -1, None
-            for player, ref_feat in self.reference_faces.items():
-                sim = np.dot(feat, ref_feat)
-                if sim > max_sim:
-                    max_sim, best_player = sim, player
-
-            if best_player is not None:
-                final_player, match_type, final_sim = self.match_with_siglip_fallback(
-                    person_roi, best_player, max_sim,
+        try:
+            for fb in face_boxes:
+                fx1, fy1, fx2, fy2 = fb
+                new_x1, new_y1, new_x2, new_y2 = self.expand_bbox_center(
+                    x1 + fx1, y1 + fy1, x1 + fx2, y1 + fy2,
+                    frame.shape[1], frame.shape[0], self.EXPAND_RATIO,
                 )
-                matches.append({
-                    "player_id": final_player,
-                    "match_type": match_type,
-                    "similarity": float(final_sim),
-                })
+                face_roi = frame[new_y1:new_y2, new_x1:new_x2]
+                if face_roi.size == 0:
+                    continue
+
+                faces = face_analyzer.get(face_roi)
+                if len(faces) == 0:
+                    continue
+                feat = normalize([faces[0].embedding])[0]
+
+                max_sim, best_player = -1, None
+                for player, ref_feat in self.reference_faces.items():
+                    sim = np.dot(feat, ref_feat)
+                    if sim > max_sim:
+                        max_sim, best_player = sim, player
+
+                if best_player is not None:
+                    final_player, match_type, final_sim = self.match_with_siglip_fallback(
+                        person_roi, best_player, max_sim,
+                    )
+                    matches.append({
+                        "player_id": final_player,
+                        "match_type": match_type,
+                        "similarity": float(final_sim),
+                    })
+        finally:
+            # 释放模型回池
+            if self.model_pool and face_analyzer:
+                self.model_pool.release_model(face_analyzer)
 
         return matches
 
@@ -664,104 +810,318 @@ class TrajectoryReIDVisualizer:
 
     def match_single_traj_to_person(self, traj_id: str, traj_data: Dict[int, Dict]) -> str:
         """匹配单条轨迹到具体球员（统一 face/qwen/siglip 模式）。"""
-        # 前置检查
-        if self.operation_mode == "face":
-            if not self.reference_faces:
-                self.traj_player_mapping[traj_id] = "无参考人脸"
-                self.frame_player_ids[traj_id] = {}
-                return "无参考人脸"
-        elif self.operation_mode in ["qwen", "siglip"]:
-            if len(self.matcher.reference_embeddings) == 0:
-                self.traj_player_mapping[traj_id] = "无参考球员"
-                self.frame_player_ids[traj_id] = {}
-                return "无参考球员"
+        # 加载之前的ReID结果
+        previous_reid_results = self.load_previous_reid_results()
+        
+        # 如果有之前的ReID结果，直接使用
+        if previous_reid_results:
+            print(f"✅ 使用之前的ReID结果进行匹配")
+            player_count: Dict[str, int] = {}
+            frame_player_data: Dict[int, Dict] = {}
+            total_frames = 0
+            sorted_frames = [f for f in sorted(traj_data.keys()) if self.START_FRAME <= f < self.MAX_PROCESS_FRAMES]
 
-        player_count: Dict[str, int] = {}
-        frame_player_data: Dict[int, Dict] = {}
-        total_frames = 0
-        sorted_frames = [f for f in sorted(traj_data.keys()) if self.START_FRAME <= f < self.MAX_PROCESS_FRAMES]
-
-        for frame_num in tqdm(sorted_frames, desc=f"处理轨迹 {traj_id}", leave=False):
-            frame_info = traj_data[frame_num]
-            boxes = frame_info.get("boxes", [])
-            if not isinstance(boxes, list) or len(boxes) == 0:
-                continue
-
-            view_groups: Dict[str, list] = {}
-            for box_item in boxes:
-                if not isinstance(box_item, dict):
+            for frame_num in tqdm(sorted_frames, desc=f"处理轨迹 {traj_id}", leave=False):
+                frame_info = traj_data[frame_num]
+                boxes = frame_info.get("boxes", [])
+                if not isinstance(boxes, list) or len(boxes) == 0:
                     continue
-                video_filename = box_item.get("video_filename", "")
-                if not video_filename:
-                    continue
-                view_groups.setdefault(video_filename, []).append(box_item)
 
-            if not view_groups:
-                continue
-
-            frame_result = {}
-            for view_name, view_boxes in view_groups.items():
-                view_result = {"player_ids": [], "multi_face": False, "match_type": "unknown", "similarity": 0.0}
-                box_matches: List[Dict] = []
-
-                for box_item in view_boxes:
-                    person_roi, frame, coords = self._read_person_roi(box_item, frame_num)
-                    if person_roi is None:
+                view_groups: Dict[str, list] = {}
+                for box_item in boxes:
+                    if not isinstance(box_item, dict):
                         continue
-                    if self.operation_mode == "face":
-                        box_matches.extend(self._match_roi_face(person_roi, frame, coords))
-                    else:
-                        box_matches.extend(self._match_roi_model(person_roi))
+                    video_filename = box_item.get("video_filename", "")
+                    if not video_filename:
+                        continue
+                    view_groups.setdefault(video_filename, []).append(box_item)
 
-                if box_matches:
-                    unique_players = list({m["player_id"] for m in box_matches})
-                    view_result["player_ids"] = unique_players
-                    view_result["multi_face"] = len(box_matches) > 1
-                    if len(box_matches) == 1:
-                        view_result["match_type"] = box_matches[0]["match_type"]
-                        view_result["similarity"] = box_matches[0]["similarity"]
-                    else:
-                        view_result["match_type"] = "multi_face"
-                        view_result["similarity"] = sum(m["similarity"] for m in box_matches) / len(box_matches)
-                    frame_result[view_name] = view_result
+                if not view_groups:
+                    continue
 
-            if frame_result:
-                total_frames += 1
-                frame_all_players: List[str] = []
-                for view_info in frame_result.values():
-                    frame_all_players.extend(view_info["player_ids"])
-                for player in set(frame_all_players):
-                    player_count[player] = player_count.get(player, 0) + 1
-                frame_player_data[frame_num] = {"views": frame_result}
+                frame_result = {}
+                for view_name, view_boxes in view_groups.items():
+                    view_result = {"player_ids": [], "multi_face": False, "match_type": "previous_reid", "similarity": 1.0}
+                    box_matches: List[Dict] = []
 
-        # 统计结果
-        if total_frames == 0:
-            self.traj_player_mapping[traj_id] = "未匹配"
+                    for box_item in view_boxes:
+                        # 尝试从box_item中获取track_id
+                        track_id = box_item.get("track_id") or box_item.get("id")
+                        
+                        if track_id in previous_reid_results:
+                            # 使用之前的ReID结果
+                            best_player = previous_reid_results[track_id]
+                            box_matches.append({
+                                "player_id": best_player,
+                                "match_type": "previous_reid",
+                                "similarity": 1.0
+                            })
+
+                    if box_matches:
+                        unique_players = list({m["player_id"] for m in box_matches})
+                        view_result["player_ids"] = unique_players
+                        view_result["multi_face"] = len(box_matches) > 1
+                        if len(box_matches) == 1:
+                            view_result["match_type"] = box_matches[0]["match_type"]
+                            view_result["similarity"] = box_matches[0]["similarity"]
+                        else:
+                            view_result["match_type"] = "multi_face"
+                            view_result["similarity"] = sum(m["similarity"] for m in box_matches) / len(box_matches)
+                        frame_result[view_name] = view_result
+
+                if frame_result:
+                    total_frames += 1
+                    frame_all_players: List[str] = []
+                    for view_info in frame_result.values():
+                        frame_all_players.extend(view_info["player_ids"])
+                    for player in set(frame_all_players):
+                        player_count[player] = player_count.get(player, 0) + 1
+                    frame_player_data[frame_num] = {"views": frame_result}
+
+            # 统计结果
+            if total_frames == 0:
+                self.traj_player_mapping[traj_id] = "未匹配"
+                self.frame_player_ids[traj_id] = frame_player_data
+                self.match_statistics["both_failed"] += 1
+                return "无有效帧"
+
+            if player_count:
+                best_player, count = max(player_count.items(), key=lambda x: x[1])
+                ratio = count / total_frames
+                is_matched = ratio >= self.MATCH_FRAME_RATIO
+            else:
+                best_player = "未匹配"
+                ratio = 0
+                is_matched = False
+                self.match_statistics["both_failed"] += 1
+
             self.frame_player_ids[traj_id] = frame_player_data
-            self.match_statistics["both_failed"] += 1
-            return "无有效帧"
 
-        if player_count:
-            best_player, count = max(player_count.items(), key=lambda x: x[1])
-            ratio = count / total_frames
-            is_matched = ratio >= self.MATCH_FRAME_RATIO
+            if self.operation_mode == "face" and not is_matched and self.SAVE_FAILED_FACES:
+                self.save_failed_traj_faces(traj_id, traj_data, best_player, player_count, total_frames)
+
+            self.traj_player_mapping[traj_id] = best_player if is_matched else "未匹配"
+
+            if self.operation_mode == "face":
+                mode_str = f" ({self.FACE_DETECTION_MODE})" if self.FACE_DETECTION_MODE == "fast" else ""
+                return f"{self.traj_player_mapping[traj_id]}{mode_str} (占比: {ratio:.2%})"
+            return f"{self.traj_player_mapping[traj_id]} (占比: {ratio:.2%})"
         else:
-            best_player = "未匹配"
-            ratio = 0
-            is_matched = False
-            self.match_statistics["both_failed"] += 1
+            # 没有之前的ReID结果，进行新的ReID处理
+            # 前置检查
+            if self.operation_mode == "face":
+                if not self.reference_faces:
+                    self.traj_player_mapping[traj_id] = "无参考人脸"
+                    self.frame_player_ids[traj_id] = {}
+                    return "无参考人脸"
+            elif self.operation_mode in ["qwen", "siglip"]:
+                if len(self.matcher.reference_embeddings) == 0:
+                    self.traj_player_mapping[traj_id] = "无参考球员"
+                    self.frame_player_ids[traj_id] = {}
+                    return "无参考球员"
 
-        self.frame_player_ids[traj_id] = frame_player_data
+            player_count: Dict[str, int] = {}
+            frame_player_data: Dict[int, Dict] = {}
+            total_frames = 0
+            sorted_frames = [f for f in sorted(traj_data.keys()) if self.START_FRAME <= f < self.MAX_PROCESS_FRAMES]
 
-        if self.operation_mode == "face" and not is_matched and self.SAVE_FAILED_FACES:
-            self.save_failed_traj_faces(traj_id, traj_data, best_player, player_count, total_frames)
+            # 批量处理相关变量
+            batch_frames = []
+            batch_person_rois = []
+            batch_box_coords = []
+            batch_frame_indices = []
+            batch_frame_nums = []
+            batch_view_names = []
+            batch_box_items = []
 
-        self.traj_player_mapping[traj_id] = best_player if is_matched else "未匹配"
+            # 存储每个追踪ID的最近识别结果
+            face_recognition_results = {}
 
-        if self.operation_mode == "face":
-            mode_str = f" ({self.FACE_DETECTION_MODE})" if self.FACE_DETECTION_MODE == "fast" else ""
-            return f"{self.traj_player_mapping[traj_id]}{mode_str} (占比: {ratio:.2%})"
-        return f"{self.traj_player_mapping[traj_id]} (占比: {ratio:.2%})"
+            for frame_num in tqdm(sorted_frames, desc=f"处理轨迹 {traj_id}", leave=False):
+                frame_info = traj_data[frame_num]
+                boxes = frame_info.get("boxes", [])
+                if not isinstance(boxes, list) or len(boxes) == 0:
+                    continue
+
+                view_groups: Dict[str, list] = {}
+                for box_item in boxes:
+                    if not isinstance(box_item, dict):
+                        continue
+                    video_filename = box_item.get("video_filename", "")
+                    if not video_filename:
+                        continue
+                    view_groups.setdefault(video_filename, []).append(box_item)
+
+                if not view_groups:
+                    continue
+
+                # 检查是否需要进行人脸识别
+                need_recognition = self.gap == 0 or (frame_num - self.START_FRAME) % self.gap == 0
+
+                if need_recognition:
+                    # 需要进行人脸识别，添加到批量中
+                    for view_name, view_boxes in view_groups.items():
+                        for box_item in view_boxes:
+                            person_roi, frame, coords = self._read_person_roi(box_item, frame_num)
+                            if person_roi is None:
+                                continue
+                            
+                            batch_frames.append(frame)
+                            batch_person_rois.append(person_roi)
+                            batch_box_coords.append(coords)
+                            batch_frame_indices.append(len(batch_frames) - 1)
+                            batch_frame_nums.append(frame_num)
+                            batch_view_names.append(view_name)
+                            batch_box_items.append(box_item)
+                else:
+                    # 不需要进行人脸识别，使用之前的识别结果
+                    frame_result = {}
+                    for view_name, view_boxes in view_groups.items():
+                        view_result = {"player_ids": [], "multi_face": False, "match_type": "unknown", "similarity": 0.0}
+                        box_matches: List[Dict] = []
+
+                        for box_item in view_boxes:
+                            # 尝试从box_item中获取track_id
+                            track_id = box_item.get("track_id") or box_item.get("id")
+                            
+                            if track_id in face_recognition_results:
+                                # 使用之前的识别结果
+                                best_player, best_similarity, match_type = face_recognition_results[track_id]
+                                box_matches.append({
+                                    "player_id": best_player,
+                                    "match_type": match_type,
+                                    "similarity": best_similarity
+                                })
+
+                        if box_matches:
+                            unique_players = list({m["player_id"] for m in box_matches})
+                            view_result["player_ids"] = unique_players
+                            view_result["multi_face"] = len(box_matches) > 1
+                            if len(box_matches) == 1:
+                                view_result["match_type"] = box_matches[0]["match_type"]
+                                view_result["similarity"] = box_matches[0]["similarity"]
+                            else:
+                                view_result["match_type"] = "multi_face"
+                                view_result["similarity"] = sum(m["similarity"] for m in box_matches) / len(box_matches)
+                            frame_result[view_name] = view_result
+
+                    if frame_result:
+                        total_frames += 1
+                        frame_all_players: List[str] = []
+                        for view_info in frame_result.values():
+                            frame_all_players.extend(view_info["player_ids"])
+                        for player in set(frame_all_players):
+                            player_count[player] = player_count.get(player, 0) + 1
+                        frame_player_data[frame_num] = {"views": frame_result}
+
+                # 当批量达到设定的大小或处理到最后一帧时，进行批量处理
+                if len(batch_frames) >= self.batch_size or (frame_num == sorted_frames[-1] and batch_frames):
+                    # 批量处理人脸识别
+                    box_matches_list = []
+                    if batch_person_rois:
+                        # 获取InsightFace模型
+                        face_analyzer = None
+                        if self.model_pool:
+                            face_analyzer = self.model_pool.get_model()
+                        else:
+                            face_analyzer = self.face_analyzer
+
+                        try:
+                            # 批量检测人脸并提取特征
+                            for i, (person_roi, coords, frame) in enumerate(zip(batch_person_rois, batch_box_coords, batch_frames)):
+                                if self.operation_mode == "face":
+                                    matches = self._match_roi_face(person_roi, frame, coords)
+                                    box_matches_list.append(matches)
+                                else:
+                                    matches = self._match_roi_model(person_roi)
+                                    box_matches_list.append(matches)
+                        finally:
+                            # 释放模型回池
+                            if self.model_pool and face_analyzer:
+                                self.model_pool.release_model(face_analyzer)
+
+                    # 处理每个检测框的识别结果
+                    frame_results = {}
+                    for i, (matches, frame_idx, frame_num, view_name, box_item) in enumerate(
+                        zip(box_matches_list, batch_frame_indices, batch_frame_nums, batch_view_names, batch_box_items)
+                    ):
+                        # 尝试从box_item中获取track_id
+                        track_id = box_item.get("track_id") or box_item.get("id")
+
+                        if matches:
+                            # 取第一个匹配结果
+                            best_match = matches[0]
+                            best_player = best_match["player_id"]
+                            best_similarity = best_match["similarity"]
+                            match_type = best_match["match_type"]
+
+                            # 存储识别结果
+                            if track_id is not None:
+                                face_recognition_results[track_id] = (best_player, best_similarity, match_type)
+
+                            # 保存到frame_results
+                            if frame_num not in frame_results:
+                                frame_results[frame_num] = {}
+                            if view_name not in frame_results[frame_num]:
+                                frame_results[frame_num][view_name] = {
+                                    "player_ids": [], "multi_face": False, "match_type": "unknown", "similarity": 0.0
+                                }
+                            frame_results[frame_num][view_name]["player_ids"].append(best_player)
+                            frame_results[frame_num][view_name]["multi_face"] = len(matches) > 1
+                            if len(matches) == 1:
+                                frame_results[frame_num][view_name]["match_type"] = match_type
+                                frame_results[frame_num][view_name]["similarity"] = best_similarity
+                            else:
+                                frame_results[frame_num][view_name]["match_type"] = "multi_face"
+                                frame_results[frame_num][view_name]["similarity"] = sum(m["similarity"] for m in matches) / len(matches)
+
+                    # 处理frame_results
+                    for frame_num, view_results in frame_results.items():
+                        total_frames += 1
+                        frame_all_players: List[str] = []
+                        for view_info in view_results.values():
+                            frame_all_players.extend(view_info["player_ids"])
+                        for player in set(frame_all_players):
+                            player_count[player] = player_count.get(player, 0) + 1
+                        frame_player_data[frame_num] = {"views": view_results}
+
+                    # 清空批量变量
+                    batch_frames = []
+                    batch_person_rois = []
+                    batch_box_coords = []
+                    batch_frame_indices = []
+                    batch_frame_nums = []
+                    batch_view_names = []
+                    batch_box_items = []
+
+            # 统计结果
+            if total_frames == 0:
+                self.traj_player_mapping[traj_id] = "未匹配"
+                self.frame_player_ids[traj_id] = frame_player_data
+                self.match_statistics["both_failed"] += 1
+                return "无有效帧"
+
+            if player_count:
+                best_player, count = max(player_count.items(), key=lambda x: x[1])
+                ratio = count / total_frames
+                is_matched = ratio >= self.MATCH_FRAME_RATIO
+            else:
+                best_player = "未匹配"
+                ratio = 0
+                is_matched = False
+                self.match_statistics["both_failed"] += 1
+
+            self.frame_player_ids[traj_id] = frame_player_data
+
+            if self.operation_mode == "face" and not is_matched and self.SAVE_FAILED_FACES:
+                self.save_failed_traj_faces(traj_id, traj_data, best_player, player_count, total_frames)
+
+            self.traj_player_mapping[traj_id] = best_player if is_matched else "未匹配"
+
+            if self.operation_mode == "face":
+                mode_str = f" ({self.FACE_DETECTION_MODE})" if self.FACE_DETECTION_MODE == "fast" else ""
+                return f"{self.traj_player_mapping[traj_id]}{mode_str} (占比: {ratio:.2%})"
+            return f"{self.traj_player_mapping[traj_id]} (占比: {ratio:.2%})"
 
     # ===================== 新增：分析融合识别性能 =====================
     def analyze_fusion_performance(self) -> None:
@@ -952,9 +1312,11 @@ class TrajectoryReIDVisualizer:
             json_data = self.load_json(json_path)
             current_trajs = json_data.get("final_merged_finished_trajectories", {})
             for traj_id, traj_data in current_trajs.items():
+                # 使用原始轨迹ID，保持与示例文件一致的格式
+                merged_trajs[traj_id] = traj_data
+                # 从映射中获取球员ID，使用唯一标识符查找
                 unique_traj_id = f"json_{json_idx}_{traj_id}"
-                traj_data["player_id"] = self.traj_player_mapping.get(unique_traj_id, "未匹配")
-                merged_trajs[unique_traj_id] = traj_data
+                merged_trajs[traj_id]["player_id"] = self.traj_player_mapping.get(unique_traj_id, "未匹配")
         final_json = {
             "final_merged_finished_trajectories": merged_trajs,
             "frame_range": f"{self.START_FRAME}-{self.MAX_PROCESS_FRAMES}",
@@ -1102,6 +1464,10 @@ class TrajectoryReIDVisualizer:
                 paths["fusion_performance"] = os.path.join(self.output_dir, "fusion_performance_analysis.json")
 
         return paths
+
+    def visualize(self) -> None:
+        """可视化方法，调用 run 方法执行完整的 ReID 流程"""
+        self.run()
 
 
 def ensure_serializable_similarity(sim_value):
