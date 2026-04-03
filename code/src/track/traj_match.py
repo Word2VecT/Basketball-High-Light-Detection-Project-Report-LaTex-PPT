@@ -44,6 +44,7 @@ class TrajectoryMerger:
         background_path: str = "assets/court__bg.png",
         output_prefix: str = "traj_match",
         global_merged_counter: Optional[int] = None,  # 新增：全局计数器
+        verbose: bool = False,  # 新增：控制是否输出详细信息
     ):
         if len(json_paths) != 2 or len(video_paths) != 2:
             raise ValueError("双池融合模式下，json_paths 和 video_paths 必须传入 2 个路径！")
@@ -51,6 +52,11 @@ class TrajectoryMerger:
         self.video_paths = video_paths
         self.error_threshold = error_threshold
         self.remain_length_threshold = remain_length_threshold
+        self.verbose = verbose  # 新增：保存 verbose 参数
+
+        # 配置 logger 不传播到 root logger，避免重复输出到控制台
+        self.logger = logging.getLogger("track.traj_match")
+        self.logger.propagate = False
 
         self.COURT_TOTAL_X = court_total_x
         self.COURT_TOTAL_Y = court_total_y
@@ -122,12 +128,26 @@ class TrajectoryMerger:
         self.merged_traj_counter = self.global_merged_counter  # 同步全局计数
         self.MERGED_TRAJ_ID_PREFIX = "serial_track_"  # 强化格式：避免和原始track_7混淆
 
+        # 日志配置
+        self.logger = logging.getLogger("track.traj_match")
+
+    def log(self, message: str, level: int = logging.INFO):
+        """根据 verbose 参数输出日志
+        
+        Args:
+            message: 日志消息
+            level: 日志级别
+        """
+        # 只有 verbose 为 True 时才输出到控制台
+        if self.verbose:
+            print(message)
+
     # ===================== 基础工具方法 =====================
 
     def load_json(self, path: str) -> Dict:
         """加载 JSON 文件。"""
         if not os.path.exists(path):
-            print(f"警告：文件 {path} 不存在，返回空字典")
+            self.log(f"警告：文件 {path} 不存在，返回空字典", level=logging.WARNING)
             return {}
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -414,7 +434,7 @@ class TrajectoryMerger:
         short_view = traj_short[next(iter(traj_short))]["view"] if traj_short else "unknown"
         long_view = traj_long[next(iter(traj_long))]["view"] if traj_long else "unknown"
 
-        def add_fused_mark(box_data, fused_target: str, view: str) -> List[Dict]:
+        def add_fused_mark(box_data, fused_target: str, view: str, player_id: str = "未知", similarity: float = 0.0) -> List[Dict]:
             normalized = []
             collected = self._collect_boxes(box_data, inherited_meta=None)
             if (
@@ -429,6 +449,8 @@ class TrajectoryMerger:
                 entry_copy = entry.copy()
                 entry_copy["fused_with"] = fused_target
                 entry_copy["view"] = view  # 新增：融合后box保留视角
+                entry_copy["player_id"] = player_id  # 新增：保留原始player_id
+                entry_copy["similarity"] = similarity  # 新增：保留原始similarity
                 normalized.append(entry_copy)
             return normalized
 
@@ -462,13 +484,17 @@ class TrajectoryMerger:
 
                 fused_boxes = []
                 if data_short.get("box"):
-                    box_short_marked = add_fused_mark(data_short["box"], f"{traj_long_id}({video_long_name})", short_view)
+                    box_short_marked = add_fused_mark(data_short["box"], f"{traj_long_id}({video_long_name})", short_view, 
+                                                   player_id=data_short.get("player_id", "未知"),
+                                                   similarity=data_short.get("similarity", 0.0))
                     if isinstance(box_short_marked, list):
                         fused_boxes.extend(box_short_marked)
                     else:
                         fused_boxes.append(box_short_marked)
                 if data_long.get("box"):
-                    box_long_marked = add_fused_mark(data_long["box"], f"{traj_short_id}({video_short_name})", long_view)
+                    box_long_marked = add_fused_mark(data_long["box"], f"{traj_short_id}({video_short_name})", long_view, 
+                                                   player_id=data_long.get("player_id", "未知"),
+                                                   similarity=data_long.get("similarity", 0.0))
                     if isinstance(box_long_marked, list):
                         fused_boxes.extend(box_long_marked)
                     else:
@@ -486,7 +512,9 @@ class TrajectoryMerger:
                 }
 
             elif data_short:
-                box_short_marked = add_fused_mark(data_short["box"], f"only from {traj_short_id}({video_short_name})", short_view)
+                box_short_marked = add_fused_mark(data_short["box"], f"only from {traj_short_id}({video_short_name})", short_view,
+                                               player_id=data_short.get("player_id", "未知"),
+                                               similarity=data_short.get("similarity", 0.0))
                 fused_boxes = []
                 if isinstance(box_short_marked, list):
                     fused_boxes.extend(box_short_marked)
@@ -505,7 +533,9 @@ class TrajectoryMerger:
                 }
 
             elif data_long:
-                box_long_marked = add_fused_mark(data_long["box"], f"only from {traj_long_id}({video_long_name})", long_view)
+                box_long_marked = add_fused_mark(data_long["box"], f"only from {traj_long_id}({video_long_name})", long_view,
+                                               player_id=data_long.get("player_id", "未知"),
+                                               similarity=data_long.get("similarity", 0.0))
                 fused_boxes = []
                 if isinstance(box_long_marked, list):
                     fused_boxes.extend(box_long_marked)
@@ -616,7 +646,7 @@ class TrajectoryMerger:
                             overlap = True
                             break
                 if overlap:
-                    print(f"  跳过目标轨迹 {target_traj_id}：同视角[{target_view_str}]下该轨迹（帧区间{target_frame_range}）已参与本轮融合，禁止重复匹配")
+                    self.log(f"  跳过目标轨迹 {target_traj_id}：同视角[{target_view_str}]下该轨迹（帧区间{target_frame_range}）已参与本轮融合，禁止重复匹配")
                     continue
 
                 # ========== 原有误差计算逻辑（无修改） ==========
@@ -624,7 +654,7 @@ class TrajectoryMerger:
                 target_frames = set(target_traj_data.keys())
                 common_frames = src_frames & target_frames
                 if not common_frames:
-                    print(f"  跳过目标轨迹 {target_traj_id}：与源轨迹 {src_traj_id} 无共同帧（无法计算空间误差）")
+                    self.log(f"  跳过目标轨迹 {target_traj_id}：与源轨迹 {src_traj_id} 无共同帧（无法计算空间误差）")
                     continue
 
                 dist_sum = 0.0
@@ -635,7 +665,7 @@ class TrajectoryMerger:
                     dist_sum += dist
 
                 avg_error = dist_sum / len(common_frames)
-                print(f"  源轨迹 {src_traj_id} 与目标轨迹 {target_traj_id} | 平均误差 = {avg_error:.4f} | 阈值 = {self.error_threshold}")
+                self.log(f"  源轨迹 {src_traj_id} 与目标轨迹 {target_traj_id} | 平均误差 = {avg_error:.4f} | 阈值 = {self.error_threshold}")
 
                 if avg_error < self.error_threshold and avg_error < best_error:
                     best_error = avg_error
@@ -648,10 +678,10 @@ class TrajectoryMerger:
                 target_frame_range = self.get_trajectory_frame_range(best_match_data)
                 # 通过工具函数解析视角+初始化键
                 target_views = self._parse_and_init_view(target_view_str)
-                # 为每个单视角标记【轨迹ID-帧区间】
-                for v in target_views:
-                    self._current_round_used_frames[v][best_match_id] = target_frame_range
-                print(f"  标记轨迹 {best_match_id}（视角[{target_view_str}]，帧区间{target_frame_range}）为已使用")
+                # 标记最佳匹配轨迹的帧区间（按视角维度）
+            for v in target_views:
+                self._current_round_used_frames[v][best_match_id] = target_frame_range
+            self.log(f"  标记轨迹 {best_match_id}（视角[{target_view_str}]，帧区间{target_frame_range}）为已使用")
 
             # ========== 原有匹配结果说明（无修改） ==========
             if best_match_id is not None:
@@ -726,7 +756,7 @@ class TrajectoryMerger:
     def draw_final_merged_trajectories(self) -> np.ndarray:
         """绘制所有最终融合成功的轨迹汇总图。"""
         if not self.merged_finished_trajectories:
-            print("提示：无最终完成的融合轨迹，无需绘制汇总俯视图")
+            self.log("提示：无最终完成的融合轨迹，无需绘制汇总俯视图")
             return np.array([])
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
         self._draw_trajectory_set(
@@ -739,7 +769,7 @@ class TrajectoryMerger:
     def draw_unmatched_trajectories(self) -> np.ndarray:
         """绘制所有未匹配轨迹的汇总图。"""
         if not self.unmatched_trajectories:
-            print("提示：无未匹配轨迹，无需绘制未匹配轨迹俯视图")
+            self.log("提示：无未匹配轨迹，无需绘制未匹配轨迹俯视图")
             return np.array([])
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
         self._draw_trajectory_set(
@@ -757,7 +787,7 @@ class TrajectoryMerger:
         """绘制所有轨迹（已融合 + 未匹配）的汇总图。"""
         total_traj_count = len(self.merged_finished_trajectories) + len(self.unmatched_trajectories)
         if total_traj_count == 0:
-            print("提示：无任何轨迹可绘制（无已融合+未匹配轨迹）")
+            self.log("提示：无任何轨迹可绘制（无已融合+未匹配轨迹）")
             return np.array([])
         overview_img = self.get_pure_background(self.OVERVIEW_IMG_WIDTH, self.OVERVIEW_IMG_HEIGHT)
         self._draw_trajectory_set(
@@ -833,17 +863,17 @@ class TrajectoryMerger:
             },
         }
 
-        print("\n=== 开始轨迹融合匹配 ===")
-        print(f"初始状态 - pool1有效轨迹数：{len(self.pool1)} | pool2有效轨迹数：{len(self.pool2)}")
-        print(f"匹配误差阈值：{self.error_threshold}")
-        print("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮")
+        self.log("\n=== 开始轨迹融合匹配 ====")
+        self.log(f"初始状态 - pool1有效轨迹数：{len(self.pool1)} | pool2有效轨迹数：{len(self.pool2)}")
+        self.log(f"匹配误差阈值：{self.error_threshold}")
+        self.log("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮")
 
         while True:
             src_traj_id, src_traj_data, src_pool_name, target_pool, target_pool_name = (
                 self.get_shortest_unjudged_trajectory()
             )
             if src_traj_id is None:
-                print("\n=== 终止条件达成：无未判断轨迹 ===")
+                self.log("\n=== 终止条件达成：无未判断轨迹 ====")
                 break
 
             is_src_merged = self.is_merged_trajectory(src_traj_id)
@@ -851,7 +881,7 @@ class TrajectoryMerger:
             src_status_dict = pool_mapping[src_pool_name]["status"]
             src_view = pool_mapping[src_pool_name]["view"]
 
-            print(
+            self.log(
                 f"\n--- 待匹配轨迹：{src_pool_name}.{src_traj_id}（类型：{'融合轨迹' if is_src_merged else '原始轨迹'}，长度：{src_traj_len}，视角：{src_view}）---"
             )
             target_pool_status = pool_mapping[target_pool_name]["status"]
@@ -859,7 +889,7 @@ class TrajectoryMerger:
             best_match_id, best_match_data, match_note = self.find_best_match_in_target_pool(
                 src_traj_data, src_traj_id, target_pool, target_pool_status
             )
-            print(f"匹配结果：{match_note}")
+            self.log(f"匹配结果：{match_note}")
 
             if best_match_id is not None:
                 self.fusion_count += 1
@@ -892,7 +922,7 @@ class TrajectoryMerger:
                     traj_short_status_dict[traj_short_id] = self.TRAJ_STATUS_MERGED_MATCHED
                     # ========== 【关键修复】：从merged_trajectories_temp中移除已匹配的融合轨迹 ==========
                     if traj_short_id in self.merged_trajectories_temp:
-                        print(f"  移除已匹配的融合轨迹（短轨迹）：{traj_short_id}")
+                        self.log(f"  移除已匹配的融合轨迹（短轨迹）：{traj_short_id}")
                         del self.merged_trajectories_temp[traj_short_id]
                 else:
                     traj_short_status_dict[traj_short_id] = self.TRAJ_STATUS_ORIGINAL_MATCHED
@@ -901,7 +931,7 @@ class TrajectoryMerger:
                     traj_long_status_dict[traj_long_id] = self.TRAJ_STATUS_MERGED_MATCHED
                     # ========== 【关键修复】：从merged_trajectories_temp中移除已匹配的融合轨迹 ==========
                     if traj_long_id in self.merged_trajectories_temp:
-                        print(f"  移除已匹配的融合轨迹（长轨迹）：{traj_long_id}")
+                        self.log(f"  移除已匹配的融合轨迹（长轨迹）：{traj_long_id}")
                         del self.merged_trajectories_temp[traj_long_id]
                 else:
                     traj_long_status_dict[traj_long_id] = self.TRAJ_STATUS_ORIGINAL_MATCHED
@@ -910,7 +940,7 @@ class TrajectoryMerger:
                     traj_long_pool[fused_id] = fused_traj
                     traj_long_status_dict[fused_id] = self.TRAJ_STATUS_MERGED_UNJUDGED
                     self.merged_trajectories_temp[fused_id] = fused_traj
-                    print(f"  融合成功：生成新轨迹 {fused_id}（长度：{fused_traj_len}）")
+                    self.log(f"  融合成功：生成新轨迹 {fused_id}（长度：{fused_traj_len}）")
 
                 traj_color = self.MERGED_TRAJ_COLORS[self.fusion_count % len(self.MERGED_TRAJ_COLORS)]
                 self.draw_single_merged_trajectory(fused_traj, fused_id, traj_color)
@@ -924,37 +954,37 @@ class TrajectoryMerger:
                         del self.merged_trajectories_temp[src_traj_id]
                     else:
                         self.merged_finished_trajectories[src_traj_id] = src_traj_data
-                    print(f"  标记轨迹 {src_pool_name}.{src_traj_id} 为【融合完成】（保留）")
+                    self.log(f"  标记轨迹 {src_pool_name}.{src_traj_id} 为【融合完成】（保留）")
                 else:
                     src_status_dict[src_traj_id] = self.TRAJ_STATUS_ORIGINAL_FAILED
                     self.unmatched_trajectories[src_traj_id] = src_traj_data
-                    print(f"  标记轨迹 {src_pool_name}.{src_traj_id} 为【原始失败】（保留至下一轮）")
+                    self.log(f"  标记轨迹 {src_pool_name}.{src_traj_id} 为【原始失败】（保留至下一轮）")
 
     def save_results(self) -> None:
         """保存最终的融合结果（保持JSON格式不变）。"""
         # ========== 【核心修复3：添加调试日志】 ==========
-        print("\n===== 本轮轨迹流向日志 =====")
-        print(f"1. 新生成的融合轨迹（merged_temp）：{list(self.merged_trajectories_temp.keys())}")
-        print(f"2. 未匹配的融合轨迹（merged_finished）：{list(self.merged_finished_trajectories.keys())}")
-        print(f"3. 未匹配的原始轨迹（unmatched）：{list(self.unmatched_trajectories.keys())}")
-        print("4. 已匹配的旧轨迹（将被剔除）：")
+        self.log("\n===== 本轮轨迹流向日志 =====")
+        self.log(f"1. 新生成的融合轨迹（merged_temp）：{list(self.merged_trajectories_temp.keys())}")
+        self.log(f"2. 未匹配的融合轨迹（merged_finished）：{list(self.merged_finished_trajectories.keys())}")
+        self.log(f"3. 未匹配的原始轨迹（unmatched）：{list(self.unmatched_trajectories.keys())}")
+        self.log("4. 已匹配的旧轨迹（将被剔除）：")
         for traj_id, status in {**self.pool1_status, **self.pool2_status}.items():
             if status in [self.TRAJ_STATUS_ORIGINAL_MATCHED, self.TRAJ_STATUS_MERGED_MATCHED]:
-                print(f"   - {traj_id} (状态: {status})")
+                self.log(f"   - {traj_id} (状态: {status})")
         merged_overview_img = self.draw_final_merged_trajectories()
         if merged_overview_img.size > 0:
             cv2.imwrite(self.MERGED_OVERVIEW_OUTPUT_PATH, merged_overview_img)
-            print(f"\n融合轨迹汇总图已保存：{self.MERGED_OVERVIEW_OUTPUT_PATH}")
+            self.log(f"\n融合轨迹汇总图已保存：{self.MERGED_OVERVIEW_OUTPUT_PATH}")
 
         all_traj_overview_img = self.draw_all_trajectories()
         if all_traj_overview_img.size > 0:
             cv2.imwrite(self.ALL_TRAJ_OVERVIEW_OUTPUT_PATH, all_traj_overview_img)
-            print(f"全轨迹汇总图已保存：{self.ALL_TRAJ_OVERVIEW_OUTPUT_PATH}")
+            self.log(f"全轨迹汇总图已保存：{self.ALL_TRAJ_OVERVIEW_OUTPUT_PATH}")
 
         unmatched_overview_img = self.draw_unmatched_trajectories()
         if unmatched_overview_img.size > 0:
             cv2.imwrite(self.UNMATCHED_OVERVIEW_OUTPUT_PATH, unmatched_overview_img)
-            print(f"未匹配轨迹汇总图已保存：{self.UNMATCHED_OVERVIEW_OUTPUT_PATH}")
+            self.log(f"未匹配轨迹汇总图已保存：{self.UNMATCHED_OVERVIEW_OUTPUT_PATH}")
 
         # 插值补全轨迹（保持原有逻辑）
         merged_finished_interp = self.batch_interpolate_trajectories(self.merged_finished_trajectories)
@@ -1001,12 +1031,12 @@ class TrajectoryMerger:
                 indent=2,
                 default=lambda x: float(x) if isinstance(x, (np.integer, np.floating)) else str(x),
             )
-        print(f"融合结果JSON已保存：{self.MERGED_JSON_OUTPUT}")
+        self.log(f"融合结果JSON已保存：{self.MERGED_JSON_OUTPUT}")
 
-        print("\n=== 融合完成 ===")
-        print(f"共完成 {self.fusion_count} 次融合")
-        print(f"本轮保留融合轨迹数：{len(all_merged_interp)}（finished: {len(merged_finished_interp)}, temp: {len(merged_temp_interp)}）")
-        print(f"本轮保留未匹配轨迹数：{len(unmatched_interp)}")
+        self.log("\n=== 融合完成 ====")
+        self.log(f"共完成 {self.fusion_count} 次融合")
+        self.log(f"本轮保留融合轨迹数：{len(all_merged_interp)}（finished: {len(merged_finished_interp)}, temp: {len(merged_temp_interp)}）")
+        self.log(f"本轮保留未匹配轨迹数：{len(unmatched_interp)}")
 
     def run(self) -> Dict[str, str]:
         """运行融合流程，返回输出路径字典。"""
@@ -1082,6 +1112,7 @@ class SerialTrajectoryMerger:
         scale_ratio: int = 50,
         background_path: str = "assets/court__bg.png",
         final_output_prefix: str = "final_traj_match",
+        verbose: bool = False,  # 新增：控制是否输出详细信息
     ):
         if len(all_json_paths) < 2 or len(all_video_paths) < 2:
             raise ValueError("all_json_paths 和 all_video_paths 至少需要传入 2 个路径！")
@@ -1097,6 +1128,11 @@ class SerialTrajectoryMerger:
         self.scale_ratio = scale_ratio
         self.background_path = background_path
         self.final_output_prefix = final_output_prefix
+        self.verbose = verbose  # 新增：保存 verbose 参数
+
+        # 配置 logger 不传播到 root logger，避免重复输出到控制台
+        self.logger = logging.getLogger("track.traj_match.serial")
+        self.logger.propagate = False
 
         self.temp_dir = os.path.join(output_root, "serial_fusion_temp")
         self.ensure_dir(self.temp_dir)
@@ -1118,6 +1154,20 @@ class SerialTrajectoryMerger:
 
         self.total_fusion_count = 0
         self.global_merged_counter = 1
+
+        # 日志配置
+        self.logger = logging.getLogger("track.traj_match.serial")
+
+    def log(self, message: str, level: int = logging.INFO):
+        """根据 verbose 参数输出日志
+        
+        Args:
+            message: 日志消息
+            level: 日志级别
+        """
+        # 只有 verbose 为 True 时才输出到控制台
+        if self.verbose:
+            print(message)
 
     def ensure_dir(self, path: str) -> None:
         """确保目录存在。"""
@@ -1171,9 +1221,9 @@ class SerialTrajectoryMerger:
         """执行串行融合（核心：同轮同视角同帧禁止重复融合+跨轮标记失效）。"""
         t0 = time.time()
         pool_num = len(self.all_json_paths)
-        logger.info(f"[traj_match] 开始串行融合 | 轨迹池数: {pool_num}")
-        print(f"\n===================== 开始串行融合（共{pool_num}个轨迹池）=====================")
-        print("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮 4. 最终仅保留融合过的轨迹")
+        self.log(f"[traj_match] 开始串行融合 | 轨迹池数: {pool_num}")
+        self.log(f"\n===================== 开始串行融合（共{pool_num}个轨迹池）=====================")
+        self.log("核心规则：1. 同轮同视角同轨迹禁止重复融合 2. 跨轮帧标记失效 3. 未匹配轨迹保留至下一轮 4. 最终仅保留融合过的轨迹")
 
         # 初始化第一轮输入
         current_json_path = self.all_json_paths[0]
@@ -1185,7 +1235,7 @@ class SerialTrajectoryMerger:
             next_json_path = self.all_json_paths[i]
             next_video_path = self.all_video_paths[i]
 
-            print(
+            self.log(
                 f"\n--------------------- 第{current_fusion_round}轮融合：Pool{current_fusion_round} + Pool{current_fusion_round + 1} ---------------------"
             )
 
@@ -1200,6 +1250,7 @@ class SerialTrajectoryMerger:
                 background_path=self.background_path,
                 output_prefix=round_output_prefix,
                 global_merged_counter=self.global_merged_counter,  # 传递全局计数
+                verbose=self.verbose,  # 传递 verbose 参数
             )
 
             # 执行本轮融合并获取输出路径
@@ -1218,7 +1269,7 @@ class SerialTrajectoryMerger:
 
         # ========== 【核心修复2：调整缩进】 ==========
         # 处理最终结果的逻辑移到循环外（循环结束后执行）
-        print("\n===================== 处理最终融合结果 =====================")
+        self.log("\n===================== 处理最终融合结果 =====================")
 
         # ========== 【核心修复3：修正读取最后一轮数据的路径】 ==========
         # 读取最后一轮（round3）融合生成的 merged_trajectories.json，而非初始JSON
@@ -1238,7 +1289,7 @@ class SerialTrajectoryMerger:
 
         # 核心筛选：仅保留 serial_track_ 开头的融合轨迹
         final_merged_trajs = self.filter_final_trajectories(final_all_trajs)
-        print(f"最终筛选：保留融合过的轨迹 {len(final_merged_trajs)} 条，舍弃全程未融合的轨迹 {len(final_all_trajs) - len(final_merged_trajs)} 条")
+        self.log(f"最终筛选：保留融合过的轨迹 {len(final_merged_trajs)} 条，舍弃全程未融合的轨迹 {len(final_all_trajs) - len(final_merged_trajs)} 条")
 
         # 绘图（保持原有逻辑）
         merger_for_viz = TrajectoryMerger(
@@ -1247,6 +1298,7 @@ class SerialTrajectoryMerger:
             output_root=self.output_root,
             scale_ratio=self.scale_ratio,
             background_path=self.background_path,
+            verbose=self.verbose,  # 传递 verbose 参数
         )
 
         merger_for_viz.merged_finished_trajectories = final_merged_trajs
@@ -1258,17 +1310,17 @@ class SerialTrajectoryMerger:
         merged_overview_img = merger_for_viz.draw_final_merged_trajectories()
         if merged_overview_img.size > 0:
             cv2.imwrite(self.final_merged_overview, merged_overview_img)
-            print(f"最终融合轨迹汇总图已保存：{self.final_merged_overview}")
+            self.log(f"最终融合轨迹汇总图已保存：{self.final_merged_overview}")
 
         all_traj_overview_img = merger_for_viz.draw_all_trajectories()
         if all_traj_overview_img.size > 0:
             cv2.imwrite(self.final_all_traj_overview, all_traj_overview_img)
-            print(f"最终全轨迹汇总图已保存：{self.final_all_traj_overview}")
+            self.log(f"最终全轨迹汇总图已保存：{self.final_all_traj_overview}")
 
         unmatched_overview_img = merger_for_viz.draw_unmatched_trajectories()
         if unmatched_overview_img.size > 0:
             cv2.imwrite(self.final_unmatched_overview, unmatched_overview_img)
-            print(f"最终未匹配轨迹汇总图已保存：{self.final_unmatched_overview}")
+            self.log(f"最终未匹配轨迹汇总图已保存：{self.final_unmatched_overview}")
 
         # 保存最终JSON（严格保持原有格式，仅筛选内容）
         final_output_json = {
@@ -1296,14 +1348,14 @@ class SerialTrajectoryMerger:
                 default=lambda x: float(x) if isinstance(x, (np.integer, np.floating)) else str(x)
             )
 
-        print(f"最终融合结果JSON已保存：{self.final_merged_json}")
-        print("\n=== 串行融合完成 ===")
-        print(f"累计融合次数：{self.total_fusion_count}")
-        print(f"最终保留融合轨迹数（至少融合过一次）：{len(final_merged_trajs)}")
-        print(f"最终未匹配轨迹数（本轮）：{len(final_unmatched_trajs)}")
+        self.log(f"最终融合结果JSON已保存：{self.final_merged_json}")
+        self.log("\n=== 串行融合完成 ====")
+        self.log(f"累计融合次数：{self.total_fusion_count}")
+        self.log(f"最终保留融合轨迹数（至少融合过一次）：{len(final_merged_trajs)}")
+        self.log(f"最终未匹配轨迹数（本轮）：{len(final_unmatched_trajs)}")
 
         elapsed = time.time() - t0
-        logger.info(
+        self.log(
             f"[traj_match] 串行融合完成 | 融合次数: {self.total_fusion_count} | "
             f"融合轨迹: {len(final_merged_trajs)} | 未匹配: {len(final_unmatched_trajs)} | 耗时 {elapsed:.1f}s"
         )

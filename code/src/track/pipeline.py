@@ -1,21 +1,224 @@
 import os
 # 先设置CUDA环境变量
-os.environ["CUDA_VISIBLE_DEVICES"] = "8,9"  # 使用的GPU编号
+os.environ["CUDA_VISIBLE_DEVICES"] = "3,4"  # 使用的GPU编号
 
 import logging
 import math
 import time
 import threading
+import queue
 
 import cv2
 
 # from .traj_combine import SlidingWindowTrajectoryMerger
-from .traj_gen import batch_process_videos
+from .traj_gen import PlayerTrajectoryTracker
 from .traj_match import SerialTrajectoryMerger
 # from .traj_refine import refine_pipe
 from .traj_reid import TrajectoryReIDVisualizer
 from .traj_smooth import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 from .traj_vis import TrajectoryVideoStitcher
+
+# 线程池类，用于复用线程处理多个片段
+class VideoProcessorPool:
+    """视频处理器线程池，用于复用线程处理多个片段"""
+    def __init__(self, video_configs, model_pool, pool_size=None):
+        """
+        初始化视频处理器线程池
+        
+        Args:
+            video_configs: 视频配置列表
+            model_pool: 模型池实例
+            pool_size: 线程池大小，默认与视频数量相同
+        """
+        self.video_configs = video_configs
+        self.model_pool = model_pool
+        self.pool_size = pool_size or len(video_configs)
+        self.threads = []
+        self.task_queues = []  # 每个视频对应一个任务队列
+        self.result_queues = []  # 每个视频对应一个结果队列
+        self.running = False
+        
+        # 为每个视频创建任务队列和结果队列
+        for i in range(len(video_configs)):
+            self.task_queues.append(queue.Queue())
+            self.result_queues.append(queue.Queue())
+    
+    def start(self):
+        """启动线程池"""
+        self.running = True
+        
+        # 为每个视频创建一个线程
+        for i, video_config in enumerate(self.video_configs):
+            thread = threading.Thread(
+                target=self._worker,
+                args=(i, video_config)
+            )
+            thread.daemon = True
+            thread.start()
+            self.threads.append(thread)
+        
+        print(f"✅ 启动 {len(self.threads)} 个视频处理线程")
+    
+    def stop(self):
+        """停止线程池"""
+        self.running = False
+        
+        # 向每个任务队列发送停止信号
+        for i in range(len(self.task_queues)):
+            self.task_queues[i].put(None)
+        
+        # 等待所有线程结束
+        for thread in self.threads:
+            thread.join()
+        
+        # print(f"✅ 停止所有视频处理线程")
+    
+    def _worker(self, video_idx, video_config):
+        """工作线程，处理指定视频的任务"""
+        video_index = video_idx + 1
+        # print(f"线程 {video_index} 启动，负责处理视频 {video_index}")
+        
+        # 为该视频创建一个持久的 tracker 实例
+        tracker = None
+        yolo_model = None
+        face_analyzer = None
+        
+        try:
+            while self.running:
+                # 从任务队列获取任务
+                task = self.task_queues[video_idx].get()
+                
+                # 检查是否收到停止信号
+                if task is None:
+                    break
+                
+                # 解析任务
+                seg_idx = task["seg_idx"]
+                output_root_dir = task["output_root_dir"]
+                common_config = task["common_config"]
+                
+                # print(f"线程 {video_index} 开始处理片段 {seg_idx}")
+                
+                # 构建最终配置
+                final_config = common_config.copy()
+                final_config.update(video_config)
+                
+                # 第一次处理时创建 tracker 和加载模型
+                if tracker is None:
+                    # 创建 tracker
+                    tracker = PlayerTrajectoryTracker(
+                        output_root_dir=output_root_dir,
+                        video_index=video_index,
+                        config=final_config,
+                        model_pool=self.model_pool,
+                        
+                    )
+                    
+                    # 加载 YOLO 模型
+                    model_path = common_config.get("PERSON_MODEL_PATH")
+                    if model_path:
+                        # print(f"线程 {video_index}：加载 YOLO 模型: {model_path}")
+                        yolo_model = tracker.person_model = PlayerTrajectoryTracker._load_yolo_model(model_path)
+                        # print(f"线程 {video_index}：YOLO 模型加载完成")
+                    
+                    # 从模型池获取 InsightFace 模型
+                    if self.model_pool:
+                        face_analyzer = self.model_pool.get_model()
+                        print(f"线程 {video_index}：从模型池获取 InsightFace 模型")
+                else:
+                    # 更新配置
+                    tracker.config = final_config
+                    tracker.output_root = os.path.join(output_root_dir, str(video_index), "traj_gen")
+                    # 确保模型和俯视图尺寸与新配置同步
+                    tracker._ensure_model()
+                    # 重新构建输出文件路径
+                    tracker._build_output_paths()
+                
+                # 处理视频
+                try:
+                    # 处理视频（包含追踪和ReID）
+                    tracker.process(face_analyzer)
+                    
+                    # 将结果放入结果队列
+                    self.result_queues[video_idx].put({
+                        "seg_idx": seg_idx,
+                        "video_idx": video_idx,
+                        "output_path": tracker.output_root,
+                        "success": True
+                    })
+                    
+                    print(f"线程 {video_index} 完成处理片段 {seg_idx}")
+                except Exception as e:
+                    print(f"线程 {video_index} 处理片段 {seg_idx} 失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # 将失败结果放入结果队列
+                    self.result_queues[video_idx].put({
+                        "seg_idx": seg_idx,
+                        "video_idx": video_idx,
+                        "output_path": None,
+                        "success": False,
+                        "error": str(e)
+                    })
+                
+                # 标记任务完成
+                self.task_queues[video_idx].task_done()
+                
+        except Exception as e:
+            print(f"线程 {video_index} 出错: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 释放资源
+            if face_analyzer and self.model_pool:
+                self.model_pool.release_model(face_analyzer)
+                print(f"线程 {video_index}：释放 InsightFace 模型")
+            
+            print(f"线程 {video_index} 停止")
+    
+    def submit_task(self, video_idx, seg_idx, output_root_dir, common_config):
+        """提交任务到指定视频的任务队列"""
+        task = {
+            "seg_idx": seg_idx,
+            "output_root_dir": output_root_dir,
+            "common_config": common_config
+        }
+        self.task_queues[video_idx].put(task)
+    
+    def get_result(self, video_idx, timeout=None):
+        """从指定视频的结果队列获取结果"""
+        try:
+            return self.result_queues[video_idx].get(timeout=timeout)
+        except queue.Empty:
+            return None
+    
+    def wait_for_segment(self, seg_idx, timeout=None):
+        """等待指定片段的所有视频处理完成"""
+        results = []
+        start_time = time.time()
+        
+        for i in range(len(self.video_configs)):
+            while True:
+                # 检查超时
+                if timeout and (time.time() - start_time) > timeout:
+                    print(f"等待片段 {seg_idx} 视频 {i+1} 超时")
+                    results.append({
+                        "seg_idx": seg_idx,
+                        "video_idx": i,
+                        "output_path": None,
+                        "success": False,
+                        "error": "Timeout"
+                    })
+                    break
+                
+                # 获取结果
+                result = self.get_result(i, timeout=1.0)
+                if result and result["seg_idx"] == seg_idx:
+                    results.append(result)
+                    break
+        
+        return results
 
 # 模型池类
 class ModelPool:
@@ -75,6 +278,7 @@ class ModelPool:
             # import insightface
             from insightface.app import FaceAnalysis
             face_analyzer = FaceAnalysis(
+                name="buffalo_l",
                 providers=['CUDAExecutionProvider'],
                 allowed_modules=['detection', 'recognition'],
             )
@@ -125,12 +329,12 @@ def log_stage_end(name: str, **extra) -> None:
     logger.info("-" * 60 + "\n")
 
 # ===================== 核心配置 =====================
-OUTPUT_ROOT = "./test2"  # 根输出目录
+OUTPUT_ROOT = "./l"  # 根输出目录
 FRAME_INTERVAL = 200  # 每多少帧处理
 OVERLAP_FRAMES = 100  # 片段间重叠帧数（避免轨迹断裂）
 FPS = 30  # 视频帧率
 MAX_PROCESS_SEGMENTS = 3  # 最大处理片段数（None 表示处理全部）
-START_VIDEO_FRAME = 3200  # 视频起始处理帧
+START_VIDEO_FRAME = 0  # 视频起始处理帧
 DISTANCE_THRESHOLD = 0.7  # 空间距离阈值（米）
 # 视频配置列表
 video_configs = [
@@ -207,8 +411,12 @@ def main():
 
     # 3. 创建模型池
     model_pool = ModelPool(pool_size=4)
+    
+    # 4. 创建视频处理器线程池
+    video_pool = VideoProcessorPool(video_configs, model_pool)
+    video_pool.start()
 
-    # 4. 循环处理每个片段
+    # 5. 循环处理每个片段
     all_segment_results = []
     skipped_segments = 0
     processed_segments = 0
@@ -258,19 +466,46 @@ def main():
             common_dict = {
                 "START_FRAME": start_frame,
                 "PROCESS_SECONDS": process_seconds,
-                "GENERATE_VIDEO": True,
+                "GENERATE_VIDEO": False,  # 不生成视频，提高处理速度
                 "FPS": FPS,
                 "PERSON_MODEL_PATH": "/data/ljy23/project/track/yolov12/model/yolo26n.pt",
-                "BATCH_SIZE": 20,  # 批量处理大小
-                "GAP": 0,  # 跳帧间隔
+                "BATCH_SIZE": 25,  # 批量处理大小
+                "GAP": 5,  # 跳帧间隔
                 "REFERENCE_FACES_DIR": "/data/ljy23/project/code/assets/ref1",  # 参考脸目录
+                "COURT_TOTAL_X": 15,  # 球场总长度（米）
+                "COURT_TOTAL_Y": 28,  # 球场总宽度（米）
+                "SCALE_RATIO": 50,  # 米到像素的比例尺
+                "COURT_BACKGROUND_PATH": "assets/court__bg.png",  # 球场背景图片路径
+                "DETECTION_CONF_THRESH": 0.7,  # 检测置信度阈值
+                "TRACK_CONF_THRESH": 0.5,  # 追踪置信度阈值
+                "EXPAND_RATIO": 3,  # 检测框外扩比例
+                "ID_FONT_SCALE": 1.0,  # ID 字体缩放比例
+                "ID_FONT_THICKNESS": 3,  # ID 字体粗细
+                "FINAL_VIDEO_FPS": 30,  # 输出视频的帧率
+                "MIN_BOX_HEIGHT": 200,  # 最小检测框高度
             }
 
-            # 7. 轨迹生成（每个线程同时进行追踪）
+            # 7. 轨迹生成（使用线程池处理）
             stage_name = f"片段{seg_idx + 1}/{segment_count} - 轨迹生成 (帧{start_frame}~{end_frame})"
             log_stage_start(stage_name)
-            output_paths = batch_process_videos(seg_output_dir, video_configs, common_config=common_dict, model_pool=model_pool)
-            log_stage_end(stage_name, 视频数=len(output_paths))
+            
+            # 为每个视频提交任务
+            for i, video_config in enumerate(video_configs):
+                video_pool.submit_task(i, seg_idx, seg_output_dir, common_dict)
+            
+            # 等待所有视频处理完成
+            print(f"⏳ 等待片段 {seg_idx} 的所有视频处理完成...")
+            tracking_results = video_pool.wait_for_segment(seg_idx, timeout=600)  # 10分钟超时
+            
+            # 收集输出路径
+            output_paths = []
+            failed_count = 0
+            for result in tracking_results:
+                output_paths.append(result["output_path"])
+                if not result["success"]:
+                    failed_count += 1
+            
+            log_stage_end(stage_name, 视频数=len(output_paths), 失败数=failed_count)
 
             # 8. 单个轨迹平滑（在匹配之前）
             stage_name = f"片段{seg_idx + 1}/{segment_count} - 单个轨迹平滑"
@@ -325,6 +560,7 @@ def main():
             all_json_paths=smooth_json_paths,
             all_video_paths=matched_video_paths,
             output_root=os.path.join(seg_output_dir, "traj_match"),
+            verbose=False
         )
         merged_traj_path = merger.run_serial_fusion()
         log_stage_end(stage_name, 输出路径=merged_traj_path)
@@ -423,6 +659,9 @@ def main():
             processed_segments += 1
 
         print(f"===================== 第 {seg_idx + 1} 个片段处理完成 =====================")
+
+    # 停止视频处理器线程池
+    video_pool.stop()
 
     # 打印处理统计
     print("\n📊 处理统计:")

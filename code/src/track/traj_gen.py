@@ -4,6 +4,8 @@ import os
 import re
 import time
 import threading
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
@@ -12,14 +14,9 @@ import numpy as np
 from ultralytics import YOLO
 from sklearn.preprocessing import normalize
 
-# 尝试导入decord库
-try:
-    import decord
-    use_decord = True
-    print("使用 decord 库进行视频解码")
-except ImportError:
-    use_decord = False
-    print("decord 库未安装，使用 cv2.VideoCapture 进行视频解码")
+# 直接使用 cv2 进行视频解码
+use_decord = False
+print("使用 cv2.VideoCapture 进行视频解码")
 
 
 logger = logging.getLogger("track.traj_gen")
@@ -42,6 +39,21 @@ class PlayerTrajectoryTracker:
     3. 将检测框底部中心点通过单应性矩阵映射到球场平面坐标。
     4. 生成追踪结果 JSON 文件和可视化视频。
     """
+
+    @staticmethod
+    def _load_yolo_model(model_path):
+        """加载 YOLO 模型
+        
+        Args:
+            model_path: YOLO 模型路径
+            
+        Returns:
+            加载好的 YOLO 模型实例
+        """
+        model = YOLO(model_path)
+        # 融合模型层，提高性能
+        model.fuse()
+        return model
 
     def __init__(
         self,
@@ -152,17 +164,7 @@ class PlayerTrajectoryTracker:
                 self.config[key] = value
 
         # 构建输出文件路径
-        output_paths = {
-            "INTERMEDIATE_VIDEO_PATH": os.path.join(self.output_root, "output_video_temp.mp4"),
-            "FINAL_VIDEO_PATH": os.path.join(self.output_root, "output_video_final_with_topview.mp4"),
-            "TRACKING_INFO_JSON": os.path.join(self.output_root, "tracking_info.json"),
-            "TRACKING_INFO_INTERP_JSON": os.path.join(self.output_root, "tracking_info_interp.json"),
-            "OUTPUT_TOPVIEW_FRAMES_DIR": os.path.join(self.output_root, "output_topview_frames"),
-            "CROSS_ID_MATCH_JSON": os.path.join(self.output_root, "cross_id_match.json"),
-            "FINAL_TRAJECTORY_JSON": os.path.join(self.output_root, "player_trajectory.json"),
-            "REID_JSON": os.path.join(self.output_root, "reid_results.json"),
-        }
-        self.config.update(output_paths)
+        self._build_output_paths()
 
         # 初始化核心变量
         self.person_model = None  # lazily loaded or shared via set_person_model
@@ -186,12 +188,26 @@ class PlayerTrajectoryTracker:
         # 参考脸特征
         self.reference_faces = {}
 
+    def _build_output_paths(self) -> None:
+        """构建输出文件路径。"""
+        output_paths = {
+            "INTERMEDIATE_VIDEO_PATH": os.path.join(self.output_root, "output_video_temp.mp4"),
+            "FINAL_VIDEO_PATH": os.path.join(self.output_root, "output_video_final_with_topview.mp4"),
+            "TRACKING_INFO_JSON": os.path.join(self.output_root, "tracking_info.json"),
+            "TRACKING_INFO_INTERP_JSON": os.path.join(self.output_root, "tracking_info_interp.json"),
+            "OUTPUT_TOPVIEW_FRAMES_DIR": os.path.join(self.output_root, "output_topview_frames"),
+            "CROSS_ID_MATCH_JSON": os.path.join(self.output_root, "cross_id_match.json"),
+            "FINAL_TRAJECTORY_JSON": os.path.join(self.output_root, "player_trajectory.json"),
+            "REID_JSON": os.path.join(self.output_root, "reid_results.json"),
+        }
+        self.config.update(output_paths)
+
     def _ensure_model(self) -> None:
-        """确保 YOLO 模型已加载（懒加载或外部注入）。"""
+        """确保 YOLO 模型已加载（懒加载或外部注入），并设置俯视图尺寸。"""
         if self.person_model is None:
             self.person_model = YOLO(self.config["PERSON_MODEL_PATH"])
 
-        # 俯视图尺寸
+        # 俯视图尺寸（每次调用都重新计算，确保配置更新后尺寸同步）
         self.TOP_VIEW_WIDTH = int(self.config["COURT_TOTAL_X"] * self.config["SCALE_RATIO"])
         self.TOP_VIEW_HEIGHT = int(self.config["COURT_TOTAL_Y"] * self.config["SCALE_RATIO"])
 
@@ -211,7 +227,7 @@ class PlayerTrajectoryTracker:
             (0, 128, 128),
         ]
 
-    def load_reference_faces(self, reference_dir):
+    def load_reference_faces(self, reference_dir, face_analyzer):
         """加载参考脸目录并提取特征"""
         # print(f"加载参考脸目录: {reference_dir}")
         reference_faces = {}
@@ -223,9 +239,6 @@ class PlayerTrajectoryTracker:
         img_files = [f for f in os.listdir(reference_dir) if f.endswith((".jpg", ".png", ".jpeg"))]
         if not img_files:
             raise ValueError("参考脸目录中没有图片文件")
-        
-        # 从模型池获取一个模型用于加载参考脸
-        face_analyzer = self.model_pool.get_model()
         
         try:
             for img_name in img_files:
@@ -256,9 +269,9 @@ class PlayerTrajectoryTracker:
             
             # print(f"参考脸特征提取完成，共加载 {len(reference_faces)} 个参考脸")
             return reference_faces
-        finally:
-            # 释放模型回池
-            self.model_pool.release_model(face_analyzer)
+        except Exception as e:
+            print(f"加载参考脸失败: {e}")
+            return {}
 
     def calculate_similarity(self, feature1, feature2):
         """计算特征相似度"""
@@ -492,28 +505,15 @@ class PlayerTrajectoryTracker:
         court_bg = self.load_court_background()
         
         # 打开视频
-        global use_decord
-        if use_decord:
-            # 使用 decord 库打开输入视频
-            try:
-                vr_input = decord.VideoReader(self.config["INPUT_VIDEO_PATH"])
-                total_frames_input = len(vr_input)
-                fps = vr_input.get_avg_fps()
-                print(f"decord 输入视频信息: FPS: {fps}, 总帧数: {total_frames_input}")
-            except Exception as e:
-                print(f"decord 打开输入视频失败: {e}，切换到 cv2.VideoCapture")
-                use_decord = False
+        # 使用 cv2.VideoCapture 打开输入视频
+        cap_input = cv2.VideoCapture(self.config["INPUT_VIDEO_PATH"])
+        if not cap_input.isOpened():
+            raise RuntimeError(f"无法打开输入视频: {self.config['INPUT_VIDEO_PATH']}")
         
-        if not use_decord:
-            # 使用 cv2.VideoCapture 打开视频
-            cap_input = cv2.VideoCapture(self.config["INPUT_VIDEO_PATH"])
-            if not cap_input.isOpened():
-                raise RuntimeError(f"无法打开输入视频: {self.config['INPUT_VIDEO_PATH']}")
-            
-            # 获取视频信息
-            fps = cap_input.get(cv2.CAP_PROP_FPS)
-            total_frames_input = int(cap_input.get(cv2.CAP_PROP_FRAME_COUNT))
-            print(f"cv2 输入视频信息: FPS: {fps}, 总帧数: {total_frames_input}")
+        # 获取视频信息
+        fps = cap_input.get(cv2.CAP_PROP_FPS)
+        total_frames_input = int(cap_input.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"输入视频信息: FPS: {fps}, 总帧数: {total_frames_input}")
         
         # 打开中间视频（使用 cv2，因为中间视频是由 cv2 生成的）
         cap_intermediate = cv2.VideoCapture(self.config["INTERMEDIATE_VIDEO_PATH"])
@@ -530,8 +530,7 @@ class PlayerTrajectoryTracker:
             total_frames_input,
         )
 
-        if not use_decord:
-            cap_input.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        cap_input.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         cap_intermediate.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         topview_w_scaled = int(self.TOP_VIEW_WIDTH * vid_height / self.TOP_VIEW_HEIGHT)
@@ -549,16 +548,7 @@ class PlayerTrajectoryTracker:
             ret_inter, frame_annotated = cap_intermediate.read()
             
             # 读取输入视频帧
-            if use_decord:
-                if frame_count < len(vr_input):
-                    frame_input = vr_input[frame_count].asnumpy()
-                    # 转换颜色空间，decord 返回 RGB，需要转换为 BGR
-                    frame_input = cv2.cvtColor(frame_input, cv2.COLOR_RGB2BGR)
-                    ret_in = True
-                else:
-                    ret_in = False
-            else:
-                ret_in, frame_input = cap_input.read()
+            ret_in, frame_input = cap_input.read()
 
             if not ret_inter:
                 if ret_in:
@@ -580,8 +570,7 @@ class PlayerTrajectoryTracker:
             frame_count += 1
 
         # 释放资源
-        if not use_decord:
-            cap_input.release()
+        cap_input.release()
         cap_intermediate.release()
         out_final.release()
 
@@ -640,12 +629,12 @@ class PlayerTrajectoryTracker:
 
     # -------------------------- 检测追踪方法 --------------------------
 
-    def _process_frame(self, frame, frame_count, out, gap, batch_size, batch_frames, batch_person_rois, batch_box_coords, batch_track_ids, batch_frame_indices, batch_frame_nums, process_frames_end):
+    def _process_frame(self, frame, frame_count, out, gap, batch_size, batch_frames, batch_person_rois, batch_box_coords, batch_track_ids, batch_frame_indices, batch_frame_nums, process_frames_end, face_analyzer):
         """处理单个帧的逻辑"""
         start_frame = self.config["START_FRAME"]
         
         # 使用YOLO内置的跟踪功能
-        results = self.person_model.track(frame, classes=[0], persist=True, stream=True, verbose=False)
+        results = self.person_model.track(frame, classes=[0], persist=True, stream=True, verbose=False,tracker="bytetrack.yaml")
 
         # 收集当前帧的人物区域
         current_frame_person_rois = []
@@ -718,43 +707,38 @@ class PlayerTrajectoryTracker:
 
         # 当批量达到设定的大小或处理到最后一帧时，进行批量ReID
         if len(batch_frames) >= batch_size or (frame_count == process_frames_end - 1 and batch_frames):
-            # 从模型池获取一个模型用于批量ReID
-            if self.model_pool:
-                face_analyzer = self.model_pool.get_model()
+            if face_analyzer and batch_person_rois:
+                # 批量处理人脸识别
+                face_results = []
+                if batch_person_rois:
+                    # print(f"批量处理 {len(batch_person_rois)} 个人脸")
+                    # 批量检测人脸并提取特征
+                    for roi in batch_person_rois:
+                        faces = face_analyzer.get(roi)
+                        face_results.append(faces)
+                    # print(2)
                 
-                try:
-                    # 批量处理人脸识别
-                    face_results = []
-                    if batch_person_rois:
-                        # 批量检测人脸并提取特征
-                        for roi in batch_person_rois:
-                            faces = face_analyzer.get(roi)
-                            face_results.append(faces)
+                # 处理每个检测框的识别结果
+                for j, (faces, track_id) in enumerate(zip(face_results, batch_track_ids)):
+                    best_person = "未知"
+                    best_similarity = -1
                     
-                    # 处理每个检测框的识别结果
-                    for j, (faces, track_id) in enumerate(zip(face_results, batch_track_ids)):
-                        best_person = "未知"
-                        best_similarity = -1
+                    if faces:
+                        # 取第一个检测到的人脸
+                        face = faces[0]
+                        feature = face.embedding
+                        feature = normalize([feature])[0]  # 归一化特征
                         
-                        if faces:
-                            # 取第一个检测到的人脸
-                            face = faces[0]
-                            feature = face.embedding
-                            feature = normalize([feature])[0]  # 归一化特征
-                            
-                            # 与所有参考脸进行匹配
-                            for person_name, ref_feature in self.reference_faces.items():
-                                similarity = self.calculate_similarity(ref_feature, feature)
-                                if similarity > best_similarity:
-                                    best_similarity = similarity
-                                    best_person = person_name
-                        
-                        # 存储识别结果
-                        if track_id is not None:
-                            self.reid_results[track_id] = (best_person, best_similarity)
-                finally:
-                    # 释放模型回池
-                    self.model_pool.release_model(face_analyzer)
+                        # 与所有参考脸进行匹配
+                        for person_name, ref_feature in self.reference_faces.items():
+                            similarity = self.calculate_similarity(ref_feature, feature)
+                            if similarity > best_similarity:
+                                best_similarity = similarity
+                                best_person = person_name
+                    
+                    # 存储识别结果
+                    if track_id is not None:
+                        self.reid_results[track_id] = (best_person, best_similarity)
             else:
                 # 没有模型池，使用默认值
                 for track_id in batch_track_ids:
@@ -762,48 +746,33 @@ class PlayerTrajectoryTracker:
                         self.reid_results[track_id] = ("未知", 0.0)
             
             # 清空批量变量
-            batch_frames = []
-            batch_person_rois = []
-            batch_box_coords = []
-            batch_track_ids = []
-            batch_frame_indices = []
-            batch_frame_nums = []
-
+            batch_frames.clear()
+            batch_person_rois.clear()
+            batch_box_coords.clear()
+            batch_track_ids.clear()
+            batch_frame_indices.clear()
+            batch_frame_nums.clear()
+        
         if (frame_count - start_frame) % 100 == 0:
             print(
                 f"视频{self.video_folder}：检测追踪进度：{frame_count - start_frame}/{process_frames_end - start_frame} 帧 (原始帧：{frame_count}/{process_frames_end})"
             )
 
-    def detect_and_track_video(self) -> None:
+    def detect_and_track_video(self, face_analyzer) -> None:
         """执行核心的视频检测与追踪逻辑，同时进行ReID。"""
-        global use_decord
         
         # 打开视频
-        if use_decord:
-            # 使用 decord 库打开视频
-            try:
-                vr = decord.VideoReader(self.config["INPUT_VIDEO_PATH"])
-                total_frames = len(vr)
-                width = vr[0].shape[1]
-                height = vr[0].shape[0]
-                fps = vr.get_avg_fps()
-                print(f"decord 视频信息: {width}x{height}, FPS: {fps}, 总帧数: {total_frames}")
-            except Exception as e:
-                print(f"decord 打开视频失败: {e}，切换到 cv2.VideoCapture")
-                use_decord = False
+        # 使用 cv2.VideoCapture 打开视频
+        cap = cv2.VideoCapture(self.config["INPUT_VIDEO_PATH"])
+        if not cap.isOpened():
+            raise RuntimeError(f"无法打开视频: {self.config['INPUT_VIDEO_PATH']}")
         
-        if not use_decord:
-            # 使用 cv2.VideoCapture 打开视频
-            cap = cv2.VideoCapture(self.config["INPUT_VIDEO_PATH"])
-            if not cap.isOpened():
-                raise RuntimeError(f"无法打开视频: {self.config['INPUT_VIDEO_PATH']}")
-            
-            # 获取视频信息
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = int(cap.get(cv2.CAP_PROP_FPS))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            print(f"cv2 视频信息: {width}x{height}, FPS: {fps}, 总帧数: {total_frames}")
+        # 获取视频信息
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"视频信息: {width}x{height}, FPS: {fps}, 总帧数: {total_frames}")
 
         start_frame = self.config["START_FRAME"]
         process_frames_end = start_frame + int(self.config["PROCESS_SECONDS"] * fps)
@@ -835,32 +804,21 @@ class PlayerTrajectoryTracker:
         gap = self.config.get("GAP", 5)
         batch_size = self.config.get("BATCH_SIZE", 5)
 
-        if use_decord:
-            # 使用 decord 读取帧
-            for i in range(start_frame, process_frames_end):
-                frame = vr[i].asnumpy()
-                # 转换颜色空间，decord 返回 RGB，需要转换为 BGR
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                frame_count = i
-                
-                # 处理当前帧
-                self._process_frame(frame, frame_count, out, gap, batch_size, batch_frames, batch_person_rois, batch_box_coords, batch_track_ids, batch_frame_indices, batch_frame_nums, process_frames_end)
-        else:
-            # 使用 cv2.VideoCapture 读取帧
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-            frame_count = start_frame
-            while cap.isOpened() and frame_count < process_frames_end:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # 处理当前帧
-                self._process_frame(frame, frame_count, out, gap, batch_size, batch_frames, batch_person_rois, batch_box_coords, batch_track_ids, batch_frame_indices, batch_frame_nums, process_frames_end)
-                
-                frame_count += 1
-                
-            # 释放资源
-            cap.release()
+        # 使用 cv2.VideoCapture 读取帧
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        frame_count = start_frame
+        while cap.isOpened() and frame_count < process_frames_end:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # 处理当前帧
+            self._process_frame(frame, frame_count, out, gap, batch_size, batch_frames, batch_person_rois, batch_box_coords, batch_track_ids, batch_frame_indices, batch_frame_nums, process_frames_end, face_analyzer)
+            
+            frame_count += 1
+            
+        # 释放资源
+        cap.release()
 
         if out is not None:
             out.release()
@@ -872,167 +830,184 @@ class PlayerTrajectoryTracker:
 
     # -------------------------- 主处理流程 --------------------------
 
-    def process(self) -> None:
-        """处理当前视频的主入口。"""
+    def process(self, face_analyzer=None) -> None:
+        """处理当前视频的主入口。
+        
+        Args:
+            face_analyzer: 可选的 InsightFace 模型实例，如果提供则使用该实例，否则从模型池获取
+        """
         self._ensure_model()
-        # print(f"\n=== 开始处理视频{self.video_folder} ===")
+        # print(f"\n=== 开始处理视频{self.video_folder} ====")
         # print(f"视频{self.video_folder}：起始帧：{self.config['START_FRAME']}")
         # print(f"视频{self.video_folder}：处理时长：{self.config['PROCESS_SECONDS']} 秒")
         # print(f"视频{self.video_folder}：输入视频：{self.config['INPUT_VIDEO_PATH']}")
         # print(f"视频{self.video_folder}：是否生成可视化视频：{self.config['GENERATE_VIDEO']}")
 
-        # 加载参考脸
-        if self.model_pool and "REFERENCE_FACES_DIR" in self.config:
-            self.reference_faces = self.load_reference_faces(self.config["REFERENCE_FACES_DIR"])
-        else:
-            print("警告：模型池或参考脸目录未设置，跳过ReID处理")
+        # 如果没有提供 face_analyzer，则从模型池获取
+        use_model_pool = False
+        if face_analyzer is None and self.model_pool:
+            face_analyzer = self.model_pool.get_model()
+            use_model_pool = True
+            print(f"视频{self.video_folder}：从模型池获取模型")
 
-        self.detect_and_track_video()
-        self.generate_player_trajectory_json()
+        try:
+            # 加载参考脸
+            if face_analyzer and "REFERENCE_FACES_DIR" in self.config:
+                self.reference_faces = self.load_reference_faces(self.config["REFERENCE_FACES_DIR"], face_analyzer)
+            else:
+                print("警告：模型池或参考脸目录未设置，跳过ReID处理")
 
-        # 仅当 GENERATE_VIDEO 为 True 时才生成视频
-        if self.config["GENERATE_VIDEO"]:
-            self.generate_final_video()
-        else:
-            print(f"视频{self.video_folder}：未启用视频生成（generate_video=False），跳过最终视频生成")
+            self.detect_and_track_video(face_analyzer)
+            self.generate_player_trajectory_json()
 
-
-# -------------------------- 批量处理函数 --------------------------
-
-
-def process_single_video(idx, video_config, output_root_dir, common_config, result_list, model_pool=None):
-    """处理单个视频的函数，用于多线程调用"""
-    # print(f"\n==================== 开始处理第{idx}个视频 ====================")
-    try:
-        final_config = common_config.copy()
-        final_config.update(video_config)
-
-        tracker = PlayerTrajectoryTracker(output_root_dir=output_root_dir, video_index=idx, config=final_config, model_pool=model_pool)
-        # 每个线程创建自己的模型实例，避免并发访问问题
-        model_path = common_config.get("PERSON_MODEL_PATH")
-        if model_path:
-            # print(f"视频{idx}：加载 YOLO 模型: {model_path}")
-            tracker.person_model = YOLO(model_path)
-            # 融合模型层，提高性能
-            tracker.person_model.fuse()
-            # print(f"视频{idx}：YOLO 模型层融合完成")
-
-        # 处理视频（包含追踪和ReID）
-        tracker.process()
-
-        result_list[idx-1] = tracker.output_root
-        print(f"\n==================== 第{idx}个视频处理完成 ====================")
-
-    except Exception as e:
-        print(f"\n==================== 第{idx}个视频处理失败 ====================")
-        print(f"错误信息：{e}")
-        import traceback
-
-        traceback.print_exc()
-        # 失败时仍记录路径（None），保证列表长度与视频数一致
-        result_list[idx-1] = None
-
-def batch_process_videos(
-    output_root_dir: str,
-    video_configs: List[Dict],
-    common_config: Optional[Dict] = None,
-    model_pool: Optional[Any] = None,
-) -> List[str]:
-    """
-    批量处理多段视频（多线程）。
-
-    Args:
-        output_root_dir: 总输出根路径。
-        video_configs: 每个视频的专属配置列表。
-        common_config: 所有视频共用的配置。
-        model_pool: 模型池实例，用于管理InsightFace模型。
-
-    Returns:
-        每个视频的输出文件夹路径列表（顺序与 video_configs 一致）。
-    """
-    common_config = common_config or {}
-    video_output_paths = [None] * len(video_configs)
-    t0 = time.time()
-
-    logger.info(f"[traj_gen] 开始批量处理 {len(video_configs)} 个视频 | 输出: {output_root_dir}")
-
-    # 检查模型路径是否存在
-    model_path = common_config.get("PERSON_MODEL_PATH")
-    if model_path:
-        logger.info(f"[traj_gen] 每个线程将加载自己的 YOLO 模型: {model_path}")
-
-    # 创建线程
-    threads = []
-    for idx, video_config in enumerate(video_configs, start=1):
-        thread = threading.Thread(
-            target=process_single_video,
-            args=(idx, video_config, output_root_dir, common_config, video_output_paths, model_pool)
-        )
-        threads.append(thread)
-
-    # 启动所有线程
-    for thread in threads:
-        thread.start()
-
-    # 等待所有线程完成
-    for thread in threads:
-        thread.join()
-
-    elapsed = time.time() - t0
-    ok_count = sum(1 for p in video_output_paths if p is not None)
-    logger.info(f"[traj_gen] 批量处理完成 | 成功 {ok_count}/{len(video_configs)} | 耗时 {elapsed:.1f}s")
-    return video_output_paths
+            # 仅当 GENERATE_VIDEO 为 True 时才生成视频
+            if self.config["GENERATE_VIDEO"]:
+                self.generate_final_video()
+            else:
+                print(f"视频{self.video_folder}：未启用视频生成（generate_video=False），跳过最终视频生成")
+        finally:
+            # 如果是从模型池获取的模型，则释放
+            if use_model_pool and face_analyzer and self.model_pool:
+                self.model_pool.release_model(face_analyzer)
+                print(f"视频{self.video_folder}：释放模型回池")
 
 
-# -------------------------- 测试示例 --------------------------
+# -------------------------- 批量处理函数（已废弃，使用 pipeline.py 中的线程池） --------------------------
 
 
-def main():
-    """测试批量处理多视频的示例函数。"""
-    # 1. 总输出根路径
-    output_root_dir = "./output"
+# def process_single_video(idx, video_config, output_root_dir, common_config, result_list, model_pool=None):
+#     """处理单个视频的函数，用于多线程调用"""
+#     # print(f"\n==================== 开始处理第{idx}个视频 ====================")
+#     try:
+#         final_config = common_config.copy()
+#         final_config.update(video_config)
+#
+#         tracker = PlayerTrajectoryTracker(output_root_dir=output_root_dir, video_index=idx, config=final_config, model_pool=model_pool)
+#         # 每个线程创建自己的模型实例，避免并发访问问题
+#         model_path = common_config.get("PERSON_MODEL_PATH")
+#         if model_path:
+#             # print(f"视频{idx}：加载 YOLO 模型: {model_path}")
+#             tracker.person_model = YOLO(model_path)
+#             # 融合模型层，提高性能
+#             tracker.person_model.fuse()
+#             # print(f"视频{idx}：YOLO 模型层融合完成")
+#
+#         # 处理视频（包含追踪和ReID）
+#         tracker.process()
+#
+#         result_list[idx-1] = tracker.output_root
+#         print(f"\n==================== 第{idx}个视频处理完成 ====================")
+#
+#     except Exception as e:
+#         print(f"\n==================== 第{idx}个视频处理失败 ====================")
+#         print(f"错误信息：{e}")
+#         import traceback
+#
+#         traceback.print_exc()
+#         # 失败时仍记录路径（None），保证列表长度与视频数一致
+#         result_list[idx-1] = None
+#
+# def batch_process_videos(
+#     output_root_dir: str,
+#     video_configs: List[Dict],
+#     common_config: Optional[Dict] = None,
+#     model_pool: Optional[Any] = None,
+# ) -> List[str]:
+#     """
+#     批量处理多段视频（多线程）。
+#
+#     Args:
+#         output_root_dir: 总输出根路径。
+#         video_configs: 每个视频的专属配置列表。
+#         common_config: 所有视频共用的配置。
+#         model_pool: 模型池实例，用于管理InsightFace模型。
+#
+#     Returns:
+#         每个视频的输出文件夹路径列表（顺序与 video_configs 一致）。
+#     """
+#     common_config = common_config or {}
+#     video_output_paths = [None] * len(video_configs)
+#     t0 = time.time()
+#
+#     logger.info(f"[traj_gen] 开始批量处理 {len(video_configs)} 个视频 | 输出: {output_root_dir}")
+#
+#     # 检查模型路径是否存在
+#     model_path = common_config.get("PERSON_MODEL_PATH")
+#     if model_path:
+#         logger.info(f"[traj_gen] 每个线程将加载自己的 YOLO 模型: {model_path}")
+#
+#     # 创建线程
+#     threads = []
+#     for idx, video_config in enumerate(video_configs, start=1):
+#         thread = threading.Thread(
+#             target=process_single_video,
+#             args=(idx, video_config, output_root_dir, common_config, video_output_paths, model_pool)
+#         )
+#         threads.append(thread)
+#
+#     # 启动所有线程
+#     for thread in threads:
+#         thread.start()
+#
+#     # 等待所有线程完成
+#     for thread in threads:
+#         thread.join()
+#
+#     elapsed = time.time() - t0
+#     ok_count = sum(1 for p in video_output_paths if p is not None)
+#     logger.info(f"[traj_gen] 批量处理完成 | 成功 {ok_count}/{len(video_configs)} | 耗时 {elapsed:.1f}s")
+#     return video_output_paths
 
-    # 2. 所有视频共用的配置
-    common_config = {
-        "PERSON_MODEL_PATH": "../face_demo/model/yolov12x.pt",
-        "HOMOGRAPHY_PATH": "homography_matrix2.npy",
-        "PROCESS_SECONDS": 10,
-        "DETECTION_CONF_THRESH": 0.5,
-        "GENERATE_VIDEO": False,
-    }
 
-    # 3. 每个视频的专属配置
-    video_configs = [
-        {
-            "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4",
-            "START_FRAME": 1600,
-            "GENERATE_VIDEO": True,
-        },
-        {
-            "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A1/1-3v3_camera1_undistorted.mp4",
-            "START_FRAME": 800,
-        },
-        {
-            "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A3/1-3v3_camera3_undistorted.mp4",
-            "START_FRAME": 1200,
-        },
-    ]
+# -------------------------- 测试示例（已废弃） --------------------------
 
-    # 4. 批量处理视频
-    video_output_paths = batch_process_videos(
-        output_root_dir=output_root_dir,
-        video_configs=video_configs,
-        common_config=common_config,
-    )
 
-    # 5. 输出结果
-    print("\n=== 批量处理完成 ===")
-    print("所有视频的输出路径列表：")
-    for idx, path in enumerate(video_output_paths, start=1):
-        if path:
-            print(f"视频{idx}：{path}")
-        else:
-            print(f"视频{idx}：处理失败，无输出路径")
+# def main():
+#     """测试批量处理多视频的示例函数。"""
+#     # 1. 总输出根路径
+#     output_root_dir = "./output"
+#
+#     # 2. 所有视频共用的配置
+#     common_config = {
+#         "PERSON_MODEL_PATH": "../face_demo/model/yolov12x.pt",
+#         "HOMOGRAPHY_PATH": "homography_matrix2.npy",
+#         "PROCESS_SECONDS": 10,
+#         "DETECTION_CONF_THRESH": 0.5,
+#         "GENERATE_VIDEO": False,
+#     }
+#
+#     # 3. 每个视频的专属配置
+#     video_configs = [
+#         {
+#             "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A2/1-3v3_camera2_undistorted.mp4",
+#             "START_FRAME": 1600,
+#             "GENERATE_VIDEO": True,
+#         },
+#         {
+#             "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A1/1-3v3_camera1_undistorted.mp4",
+#             "START_FRAME": 800,
+#         },
+#         {
+#             "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/A3/1-3v3_camera3_undistorted.mp4",
+#             "START_FRAME": 1200,
+#         },
+#     ]
+#
+#     # 4. 批量处理视频
+#     video_output_paths = batch_process_videos(
+#         output_root_dir=output_root_dir,
+#         video_configs=video_configs,
+#         common_config=common_config,
+#     )
+#
+#     # 5. 输出结果
+#     print("\n=== 批量处理完成 ===")
+#     print("所有视频的输出路径列表：")
+#     for idx, path in enumerate(video_output_paths, start=1):
+#         if path:
+#             print(f"视频{idx}：{path}")
+#         else:
+#             print(f"视频{idx}：处理失败，无输出路径")
 
 
 # if __name__ == "__main__":
