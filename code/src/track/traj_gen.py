@@ -187,6 +187,12 @@ class PlayerTrajectoryTracker:
         self.model_pool = model_pool
         # 参考脸特征
         self.reference_faces = {}
+        
+        # ReID早停相关
+        self.track_id_history: Dict[int, List[str]] = {}  # 每个轨迹的识别历史
+        self.track_id_confirmed: Dict[int, bool] = {}  # 标记轨迹是否已确定ID
+        self.REID_EARLY_STOP_THRESHOLD = 1000  # 至少识别5次
+        self.REID_EARLY_STOP_RATIO = 0.9  # 80%以上是同一个ID就早停
 
     def _build_output_paths(self) -> None:
         """构建输出文件路径。"""
@@ -664,9 +670,9 @@ class PlayerTrajectoryTracker:
                         self.player_ground_trajectories[track_id] = []
                     self.player_ground_trajectories[track_id].append((frame_count, (ground_X, ground_Y)))
 
-                    # 收集人物区域用于ReID
+                    # 收集人物区域用于ReID（仅对未确认ID的轨迹）
                     person_roi = frame[y1:y2, x1:x2]
-                    if person_roi.size > 0:
+                    if person_roi.size > 0 and not self.track_id_confirmed.get(track_id, False):
                         current_frame_person_rois.append(person_roi)
                         current_frame_box_coords.append((x1, y1, x2, y2))
                         current_frame_track_ids.append(track_id)
@@ -739,6 +745,33 @@ class PlayerTrajectoryTracker:
                     # 存储识别结果
                     if track_id is not None:
                         self.reid_results[track_id] = (best_person, best_similarity)
+                        
+                        # 更新识别历史（仅对未确认ID的轨迹）
+                        if best_person != "未知" and not self.track_id_confirmed.get(track_id, False):
+                            # 初始化历史记录
+                            if track_id not in self.track_id_history:
+                                self.track_id_history[track_id] = []
+                            # 添加当前识别结果
+                            self.track_id_history[track_id].append(best_person)
+                            
+                            # 检查是否可以早停
+                            history = self.track_id_history[track_id]
+                            if len(history) >= self.REID_EARLY_STOP_THRESHOLD:
+                                # 统计每个ID的出现次数
+                                from collections import defaultdict
+                                id_count = defaultdict(int)
+                                for pid in history:
+                                    id_count[pid] += 1
+                                # 找出出现次数最多的ID
+                                most_common_id = max(id_count.items(), key=lambda x: x[1])[0]
+                                most_common_count = id_count[most_common_id]
+                                # 检查是否超过阈值
+                                if most_common_count / len(history) >= self.REID_EARLY_STOP_RATIO:
+                                    # 确认这个ID，不再进行ReID
+                                    self.track_id_confirmed[track_id] = True
+                                    # print("早停")
+                                    # 更新为最常见的ID（提高准确性）
+                                    self.reid_results[track_id] = (most_common_id, best_similarity)
             else:
                 # 没有模型池，使用默认值
                 for track_id in batch_track_ids:
