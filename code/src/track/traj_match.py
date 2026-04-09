@@ -36,7 +36,7 @@ class TrajectoryMerger:
         json_paths: List[str],
         video_paths: List[str],
         output_root: str,
-        error_threshold: float = 0.6,
+        error_threshold: float = 0.8,
         remain_length_threshold: int = 50,
         court_total_x: float = 15.0,
         court_total_y: float = 28.0,

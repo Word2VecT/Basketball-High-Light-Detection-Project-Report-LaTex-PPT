@@ -265,7 +265,37 @@ class AdaptiveJumpRemover:
             return False
 
     def process_batch(self) -> List[str]:
-        """批量处理所有输入路径。"""
+        """
+        批量处理所有输入路径
+        
+        使用方法：
+            # 方式1：处理多个目录
+            smoother = AdaptiveJumpRemover(
+                traj_gen_paths_list=[
+                    "/path/to/segment_000/1",
+                    "/path/to/segment_000/2",
+                ]
+            )
+            output_dirs = smoother.process_batch()
+            
+            # 方式2：处理多个JSON文件
+            smoother = AdaptiveJumpRemover(
+                traj_gen_paths_list=[
+                    "/path/to/traj1.json",
+                    "/path/to/traj2.json",
+                ],
+                input_is_json=True
+            )
+            output_dirs = smoother.process_batch()
+        
+        Returns:
+            List[str]: 成功平滑的输出目录列表
+        
+        输出：
+            每个输入对应的目录下会生成：
+            - traj_smooth/smooth_traj.json: 平滑后的轨迹
+            - traj_smooth/smooth_traj.png: 轨迹可视化
+        """
         t0 = time.time()
         logger.info(f"[traj_smooth] 开始批量平滑 | 输入数: {len(self.traj_gen_paths_list)}")
         self.successful_smooth_folders.clear()

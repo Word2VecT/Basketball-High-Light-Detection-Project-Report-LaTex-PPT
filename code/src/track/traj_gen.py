@@ -181,18 +181,14 @@ class PlayerTrajectoryTracker:
         self.player_trajectories: Dict[int, List[Tuple[int, List[int], float]]] = {}
         # player_ground_trajectories: {track_id: [(frame, (x, y)), ...]}
         self.player_ground_trajectories: Dict[int, List[Tuple[int, Tuple[float, float]]]] = {}
-        # reid_results: {track_id: (player_id, similarity)}
+        # reid_results: {track_id: (player_id, similarity)} - 当前最新的ReID结果
         self.reid_results: Dict[int, Tuple[str, float]] = {}
+        # reid_history: {track_id: {frame: (player_id, similarity)}} - 保存每一帧当时的ReID结果
+        self.reid_history: Dict[int, Dict[int, Tuple[str, float]]] = {}
         # 模型池
         self.model_pool = model_pool
         # 参考脸特征
         self.reference_faces = {}
-        
-        # ReID早停相关
-        self.track_id_history: Dict[int, List[str]] = {}  # 每个轨迹的识别历史
-        self.track_id_confirmed: Dict[int, bool] = {}  # 标记轨迹是否已确定ID
-        self.REID_EARLY_STOP_THRESHOLD = 1000  # 至少识别5次
-        self.REID_EARLY_STOP_RATIO = 0.9  # 80%以上是同一个ID就早停
 
     def _build_output_paths(self) -> None:
         """构建输出文件路径。"""
@@ -587,7 +583,34 @@ class PlayerTrajectoryTracker:
     # -------------------------- JSON 生成方法 --------------------------
 
     def generate_player_trajectory_json(self) -> None:
-        """生成并保存最终的球员轨迹 JSON 文件。"""
+        """
+        生成并保存最终的球员轨迹 JSON 文件
+        
+        输出 JSON 格式：
+        {
+            "track_1": {
+                "3500": {
+                    "x": 5.2,          // 地面坐标X（米）
+                    "y": 10.5,         // 地面坐标Y（米）
+                    "box": [x1,y1,x2,y2],  // 检测框坐标
+                    "confidence": 0.85,     // 检测置信度
+                    "player_id": "05",      // ReID识别的球员ID
+                    "similarity": 0.92      // ReID相似度
+                },
+                ...
+            },
+            ...
+        }
+        
+        关键特性：
+        - 使用 reid_history 保存每一帧当时的 ReID 结果
+        - 保证视频显示和 JSON 保存的 player_id 完全一致
+        
+        输出文件：
+            - player_trajectory.json: 最终球员轨迹（主要输出）
+            - tracking_info.json: 原始追踪信息
+            - reid_results.json: ReID识别结果
+        """
         player_trajectory = {}
 
         for pid in self.player_ground_trajectories:
@@ -607,11 +630,11 @@ class PlayerTrajectoryTracker:
                 frame_int = int(frame)
                 if frame_int not in bbox_conf_dict:
                     continue
-                # 获取ReID结果
+                # 从历史记录中获取该帧当时的 ReID 结果（与视频绘制时一致）
                 player_id = "未知"
                 similarity = 0.0
-                if pid in self.reid_results:
-                    player_id, similarity = self.reid_results[pid]
+                if pid in self.reid_history and frame_int in self.reid_history[pid]:
+                    player_id, similarity = self.reid_history[pid][frame_int]
                 frame_dict[frame_int] = {
                     "x": float(x),
                     "y": float(y),
@@ -640,7 +663,7 @@ class PlayerTrajectoryTracker:
         start_frame = self.config["START_FRAME"]
         
         # 使用YOLO内置的跟踪功能
-        results = self.person_model.track(frame, classes=[0], persist=True, stream=True, verbose=False,tracker="bytetrack.yaml")
+        results = self.person_model.track(frame, classes=[0], persist=True, stream=True, verbose=False,tracker="/data/ljy23/project/code/src/track/bytetrack.yaml")
 
         # 收集当前帧的人物区域
         current_frame_person_rois = []
@@ -669,10 +692,19 @@ class PlayerTrajectoryTracker:
                     if track_id not in self.player_ground_trajectories:
                         self.player_ground_trajectories[track_id] = []
                     self.player_ground_trajectories[track_id].append((frame_count, (ground_X, ground_Y)))
+                    
+                    # 保存当前帧的 ReID 结果（与视频绘制时使用的一致）
+                    player_id = "未知"
+                    similarity = 0.0
+                    if track_id in self.reid_results:
+                        player_id, similarity = self.reid_results[track_id]
+                    if track_id not in self.reid_history:
+                        self.reid_history[track_id] = {}
+                    self.reid_history[track_id][frame_count] = (player_id, similarity)
 
-                    # 收集人物区域用于ReID（仅对未确认ID的轨迹）
+                    # 收集人物区域用于ReID
                     person_roi = frame[y1:y2, x1:x2]
-                    if person_roi.size > 0 and not self.track_id_confirmed.get(track_id, False):
+                    if person_roi.size > 0:
                         current_frame_person_rois.append(person_roi)
                         current_frame_box_coords.append((x1, y1, x2, y2))
                         current_frame_track_ids.append(track_id)
@@ -745,33 +777,6 @@ class PlayerTrajectoryTracker:
                     # 存储识别结果
                     if track_id is not None:
                         self.reid_results[track_id] = (best_person, best_similarity)
-                        
-                        # 更新识别历史（仅对未确认ID的轨迹）
-                        if best_person != "未知" and not self.track_id_confirmed.get(track_id, False):
-                            # 初始化历史记录
-                            if track_id not in self.track_id_history:
-                                self.track_id_history[track_id] = []
-                            # 添加当前识别结果
-                            self.track_id_history[track_id].append(best_person)
-                            
-                            # 检查是否可以早停
-                            history = self.track_id_history[track_id]
-                            if len(history) >= self.REID_EARLY_STOP_THRESHOLD:
-                                # 统计每个ID的出现次数
-                                from collections import defaultdict
-                                id_count = defaultdict(int)
-                                for pid in history:
-                                    id_count[pid] += 1
-                                # 找出出现次数最多的ID
-                                most_common_id = max(id_count.items(), key=lambda x: x[1])[0]
-                                most_common_count = id_count[most_common_id]
-                                # 检查是否超过阈值
-                                if most_common_count / len(history) >= self.REID_EARLY_STOP_RATIO:
-                                    # 确认这个ID，不再进行ReID
-                                    self.track_id_confirmed[track_id] = True
-                                    # print("早停")
-                                    # 更新为最常见的ID（提高准确性）
-                                    self.reid_results[track_id] = (most_common_id, best_similarity)
             else:
                 # 没有模型池，使用默认值
                 for track_id in batch_track_ids:
@@ -864,10 +869,27 @@ class PlayerTrajectoryTracker:
     # -------------------------- 主处理流程 --------------------------
 
     def process(self, face_analyzer=None) -> None:
-        """处理当前视频的主入口。
+        """
+        处理当前视频的主入口
         
         Args:
             face_analyzer: 可选的 InsightFace 模型实例，如果提供则使用该实例，否则从模型池获取
+        
+        使用方法：
+            # 方式1：使用模型池
+            tracker = PlayerTrajectoryTracker(...)
+            tracker.process()  # 自动从模型池获取/释放模型
+            
+            # 方式2：传入已有模型
+            face_analyzer = InsightFace(...)
+            tracker = PlayerTrajectoryTracker(...)
+            tracker.process(face_analyzer=face_analyzer)
+        
+        输出：
+            - player_trajectory.json: 最终球员轨迹
+            - reid_results.json: ReID识别结果
+            - tracking_info.json: 原始追踪信息
+            - (可选) output_video_final_with_topview.mp4: 可视化视频
         """
         self._ensure_model()
         # print(f"\n=== 开始处理视频{self.video_folder} ====")

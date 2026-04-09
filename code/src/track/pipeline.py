@@ -21,8 +21,32 @@ from .traj_combine import SlidingWindowTrajectoryMerger
 
 # 线程池类，用于复用线程处理多个片段
 class VideoProcessorPool:
-    """视频处理器线程池，用于复用线程处理多个片段"""
+    """
+    视频处理器线程池，用于复用线程处理多个片段
+    
+    功能：
+    - 创建多个线程，每个线程处理一个相机的视频
+    - 线程复用，避免频繁创建销毁
+    - 通过任务队列传递片段处理任务
+    
+    使用方法：
+        pool = VideoProcessorPool(video_configs, model_pool)
+        pool.start()
+        # 提交任务
+        pool.submit_task(seg_idx=0, output_root_dir="./output", common_config={...})
+        # 获取结果
+        results = pool.get_results()
+        pool.stop()
+    """
     def __init__(self, video_configs, model_pool, pool_size=None):
+        """
+        初始化视频处理器线程池
+        
+        Args:
+            video_configs: 视频配置列表
+            model_pool: InsightFace模型池
+            pool_size: 线程池大小，默认为视频数量
+        """
         self.video_configs = video_configs
         self.model_pool = model_pool
         self.pool_size = pool_size or len(video_configs)
@@ -36,6 +60,7 @@ class VideoProcessorPool:
             self.result_queues.append(queue.Queue())
     
     def start(self):
+        """启动所有视频处理线程"""
         self.running = True
         for i, video_config in enumerate(self.video_configs):
             thread = threading.Thread(
@@ -48,13 +73,50 @@ class VideoProcessorPool:
         print(f"✅ 启动 {len(self.threads)} 个视频处理线程")
     
     def stop(self):
+        """停止所有视频处理线程"""
         self.running = False
         for i in range(len(self.task_queues)):
             self.task_queues[i].put(None)
         for thread in self.threads:
             thread.join()
     
+    def submit_task(self, seg_idx, output_root_dir, common_config):
+        """
+        提交片段处理任务到所有线程
+        
+        Args:
+            seg_idx: 片段索引
+            output_root_dir: 输出根目录
+            common_config: 通用配置字典
+        """
+        task = {
+            "seg_idx": seg_idx,
+            "output_root_dir": output_root_dir,
+            "common_config": common_config,
+        }
+        for q in self.task_queues:
+            q.put(task)
+    
+    def get_results(self):
+        """
+        获取所有线程的处理结果
+        
+        Returns:
+            list: 所有线程的处理结果列表
+        """
+        results = []
+        for q in self.result_queues:
+            results.append(q.get())
+        return results
+    
     def _worker(self, video_idx, video_config):
+        """
+        工作线程函数，处理单个相机的视频
+        
+        Args:
+            video_idx: 视频索引（从0开始）
+            video_config: 视频配置字典
+        """
         video_index = video_idx + 1
         tracker = None
         yolo_model = None
@@ -165,8 +227,29 @@ class VideoProcessorPool:
 
 # 模型池类
 class ModelPool:
-    """InsightFace模型池，用于管理多个模型实例"""
+    """
+    InsightFace模型池，用于管理多个模型实例
+    
+    功能：
+    - 预创建多个 InsightFace 模型实例
+    - 线程安全的模型获取和释放
+    - 避免频繁创建销毁模型，提高性能
+    
+    使用方法：
+        model_pool = ModelPool(pool_size=4)
+        # 获取模型
+        model = model_pool.get_model()
+        # 使用模型...
+        # 释放模型
+        model_pool.release_model(model)
+    """
     def __init__(self, pool_size=4):
+        """
+        初始化模型池
+        
+        Args:
+            pool_size: 模型池大小，默认为4
+        """
         self.pool = []
         self.lock = threading.Lock()
         self.pool_size = pool_size
@@ -179,16 +262,37 @@ class ModelPool:
         print(f"模型池初始化完成，共 {len(self.pool)} 个模型")
     
     def get_model(self):
+        """
+        从模型池中获取一个空闲模型
+        
+        Returns:
+            InsightFace模型实例
+            
+        Raises:
+            Exception: 当模型池为空时
+        """
         with self.lock:
             if not self.pool:
                 raise Exception("模型池为空")
             return self.pool.pop()
     
     def release_model(self, model):
+        """
+        释放模型回池
+        
+        Args:
+            model: 要释放的 InsightFace 模型实例
+        """
         with self.lock:
             self.pool.append(model)
     
     def init_insightface_model(self):
+        """
+        初始化单个 InsightFace 模型
+        
+        Returns:
+            初始化好的 InsightFace 模型实例
+        """
         print("初始化 InsightFace 模型...")
         import logging
         import sys
@@ -212,6 +316,8 @@ class ModelPool:
             from insightface.app import FaceAnalysis
             face_analyzer = FaceAnalysis(
                 name="buffalo_l",
+                # name="antelopev2",
+                # name="buffalo_x",
                 providers=['CUDAExecutionProvider'],
                 allowed_modules=['detection', 'recognition'],
             )
@@ -256,17 +362,17 @@ def log_stage_end(name: str, **extra) -> None:
     logger.info("-" * 60 + "\n")
 
 # ===================== 核心配置 =====================
-OUTPUT_ROOT = "./test3"
-FRAME_INTERVAL = 300
-OVERLAP_FRAMES = 100
-FPS = 30
-MAX_PROCESS_SEGMENTS = 10
-START_VIDEO_FRAME = 3500
-DISTANCE_THRESHOLD = 0.7
-video_configs = [
+OUTPUT_ROOT = "./test"  # 输出根目录，所有结果都保存在这里
+FRAME_INTERVAL = 300  # 每个片段处理的帧数（不包含重叠）
+OVERLAP_FRAMES = 100  # 相邻片段之间的重叠帧数，用于片段间融合
+FPS = 30  # 视频帧率
+MAX_PROCESS_SEGMENTS = 3  # 最大处理的片段数量
+START_VIDEO_FRAME = 3500  # 视频处理的起始帧号
+DISTANCE_THRESHOLD = 0.7  # 轨迹匹配的距离阈值（米）
+video_configs = [  # 视频配置列表，每个元素对应一个相机
     {
-        "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/11.19/A1/A1-1_camera1_undistorted.mp4",
-        "HOMOGRAPHY_PATH": "assets/homo/homography_matrix1.npy",
+        "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/11.19/A1/A1-1_camera1_undistorted.mp4",  # 输入视频路径
+        "HOMOGRAPHY_PATH": "assets/homo/homography_matrix1.npy",  # 单应性矩阵路径（用于图像坐标到地面坐标的映射）
     },
     {
         "INPUT_VIDEO_PATH": "/data/ljy23/data/videodata/11.19/A2/A2-1_camera1_undistorted.mp4",
@@ -281,13 +387,25 @@ video_configs = [
         "HOMOGRAPHY_PATH": "assets/homo/homography_matrix4.npy",
     },
 ]
-VIDEO_PATHS = [vc["INPUT_VIDEO_PATH"] for vc in video_configs]
+VIDEO_PATHS = [vc["INPUT_VIDEO_PATH"] for vc in video_configs]  # 提取所有视频路径的列表
 
 
 # ===================== 工具函数 =====================
 
 
 def get_video_total_frames(video_path):
+    """
+    获取视频的总帧数
+    
+    Args:
+        video_path: 视频文件路径
+        
+    Returns:
+        int: 视频的总帧数
+        
+    使用方法:
+        total_frames = get_video_total_frames("/path/to/video.mp4")
+    """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"无法打开视频：{video_path}")
@@ -307,7 +425,27 @@ async def traj_gen_producer(
     model_pool: ModelPool,
     video_pool: VideoProcessorPool,
 ):
-    """异步生产者：持续生成并处理片段traj_gen"""
+    """
+    异步生产者：持续生成并处理片段traj_gen
+    
+    Args:
+        segment_queue: 异步队列，用于传递处理完的片段给消费者
+        segment_count: 要处理的片段总数
+        actual_process_start: 实际处理的起始帧号
+        actual_process_end: 实际处理的结束帧号
+        model_pool: InsightFace模型池
+        video_pool: 视频处理器线程池
+        
+    使用方法:
+        producer_task = asyncio.create_task(traj_gen_producer(
+            segment_queue=queue,
+            segment_count=5,
+            actual_process_start=3500,
+            actual_process_end=5000,
+            model_pool=model_pool,
+            video_pool=video_pool
+        ))
+    """
     print("\n🚀 启动 traj_gen 生产者")
     
     for seg_idx in range(segment_count):
@@ -344,8 +482,8 @@ async def traj_gen_producer(
                 "GENERATE_VIDEO": False,
                 "FPS": FPS,
                 "PERSON_MODEL_PATH": "/data/ljy23/project/track/yolov12/model/yolo26x.pt",
-                "BATCH_SIZE": 10,
-                "GAP": 3,
+                "BATCH_SIZE": 15,
+                "GAP": 0,
                 "REFERENCE_FACES_DIR": "/data/ljy23/project/code/assets/ref1",
                 "COURT_TOTAL_X": 15,
                 "COURT_TOTAL_Y": 28,
@@ -461,7 +599,8 @@ async def process_segment_consumer(
             
             smooth_json_paths = []
             for output_path in matched_outputs:
-                smooth_json_path = os.path.join(output_path, "traj_smooth", "smoothed_trajectory.json") if os.path.exists(os.path.join(output_path, "traj_smooth", "smoothed_trajectory.json")) else os.path.join(output_path, "player_trajectory.json")
+                # smooth_json_path = os.path.join(output_path, "traj_smooth", "smoothed_trajectory.json") if os.path.exists(os.path.join(output_path, "traj_smooth", "smoothed_trajectory.json")) else os.path.join(output_path, "player_trajectory.json")
+                smooth_json_path = os.path.join(output_path, "traj_smooth", "smoothed_trajectory.json")
                 smooth_json_paths.append(smooth_json_path)
             
             merger = SerialTrajectoryMerger(
@@ -655,6 +794,78 @@ async def main_async():
                 final_combined_path = merger.run_serial_fusion()
                 log_stage_end(stage_name, 输出路径=final_combined_path)
                 print(f"✅ 片段间融合完成，最终结果保存至: {final_combined_path}")
+                
+                # -------------------------- 阶段14：片段间融合后Smooth --------------------------
+                stage_name = "片段间融合 - 轨迹平滑"
+                log_stage_start(stage_name)
+                
+                smooth_output_dir = os.path.join(combine_output_dir, "traj_smooth")
+                os.makedirs(smooth_output_dir, exist_ok=True)
+                smooth_output_json = os.path.join(smooth_output_dir, "smoothed_trajectories.json")
+                smooth_output_image = os.path.join(smooth_output_dir, "smoothed_trajectories.png")
+                
+                try:
+                    smoother = MergedAdaptiveJumpRemover(
+                        input_json_path=final_combined_path,
+                        output_json_path=smooth_output_json,
+                        vis_image_path=smooth_output_image,
+                        jump_distance_threshold=1.0,
+                        speed_ratio_threshold=4.0,
+                        frame_rate=FPS,
+                        lookback_frames=10,
+                        max_repair_gap_frames=45,
+                        moving_average_window=40,
+                        gaussian_sigma=2.0,
+                        court_total_x=15.0,
+                        court_total_y=28.0,
+                        scale_ratio=50,
+                    )
+                    smoothed_traj_path = smoother.run()
+                    log_stage_end(stage_name, 输出路径=smoothed_traj_path)
+                    print(f"✅ 片段间融合平滑完成，结果保存至: {smoothed_traj_path}")
+                    
+                    # -------------------------- 阶段15：最终视频生成 --------------------------
+                    stage_name = "最终视频生成"
+                    log_stage_start(stage_name)
+                    
+                    vis_output_dir = os.path.join(combine_output_dir, "traj_vis")
+                    os.makedirs(vis_output_dir, exist_ok=True)
+                    
+                    # 计算整体帧范围
+                    start_frame = START_VIDEO_FRAME
+                    end_frame = START_VIDEO_FRAME + segment_count * (FRAME_INTERVAL - OVERLAP_FRAMES) + OVERLAP_FRAMES
+                    
+                    print(f"  视频生成帧范围：{start_frame} ~ {end_frame}")
+                    
+                    try:
+                        stitcher = TrajectoryVideoStitcher(
+                            single_json_path=smoothed_traj_path,
+                            video_paths=VIDEO_PATHS,
+                            output_root_dir=vis_output_dir,
+                            start_frame=start_frame,
+                            maxframe=end_frame,
+                            fps=FPS,
+                            half_court=False,
+                            drop_unmatched=False,
+                            fill_missing_frames=True,
+                            max_fill_gap=30,
+                            show_traj_legend=False,
+                        )
+                        stitcher.batch_generate_stitch_videos()
+                        log_stage_end(stage_name)
+                        print(f"✅ 最终视频生成完成，结果保存至: {vis_output_dir}")
+                    except Exception as e:
+                        print(f"❌ 最终视频生成失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        log_stage_end(stage_name, 状态="失败")
+                        
+                except Exception as e:
+                    print(f"❌ 片段间融合平滑失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    log_stage_end(stage_name, 状态="失败")
+                    
             except Exception as e:
                 print(f"❌ 片段间融合失败: {e}")
                 import traceback
