@@ -3,22 +3,22 @@ import os
 # 先设置CUDA环境变量
 os.environ["CUDA_VISIBLE_DEVICES"] = "3,4"  # 使用的GPU编号
 
-import logging
-import math
-import time
-import threading
-import queue
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import logging
+import math
+import queue
+import threading
+import time
 
 import cv2
 
+from .traj_combine import SlidingWindowTrajectoryMerger
 from .traj_gen import PlayerTrajectoryTracker
 from .traj_match import SerialTrajectoryMerger
 from .traj_reid import TrajectoryReIDVisualizer
 from .traj_smooth import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 from .traj_vis import TrajectoryVideoStitcher
-from .traj_combine import SlidingWindowTrajectoryMerger
 
 
 # 线程池类，用于复用线程处理多个片段
@@ -296,7 +296,6 @@ class ModelPool:
         print("初始化 InsightFace 模型...")
         import logging
         import sys
-        import os
 
         original_log_level = logging.getLogger().getEffectiveLevel()
         logging.basicConfig(level=logging.ERROR)
@@ -596,7 +595,7 @@ async def process_segment_consumer(
                     matched_video_paths.append(VIDEO_PATHS[i])
 
             if len(matched_outputs) < 2:
-                print(f"⚠️  有效输出路径不足2个，跳过轨迹匹配")
+                print("⚠️  有效输出路径不足2个，跳过轨迹匹配")
                 log_stage_end(stage_name, 状态="跳过")
                 segment_queue.task_done()
                 continue
@@ -880,7 +879,7 @@ async def main_async():
                 traceback.print_exc()
                 log_stage_end(stage_name, 状态="失败")
         else:
-            print(f"⚠️  有效融合轨迹文件不足2个，跳过片段间融合")
+            print("⚠️  有效融合轨迹文件不足2个，跳过片段间融合")
             log_stage_end(stage_name, 状态="跳过")
     else:
         print("⚠️  片段数不足2个，无需片段间融合")
