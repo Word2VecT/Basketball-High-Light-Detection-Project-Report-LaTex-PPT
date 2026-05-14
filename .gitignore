@@ -32,13 +32,21 @@ build/
 *.bin
 
 # 视频和图片输出（通常很大）
-output/
 *.mp4
 *.avi
 *.gif
 *.png
 *.jpg
 *.jpeg
+
+# output目录下的大文件（保留json配置文件）
+output/*/
+!output/undist_intrinsics_correct/
+!output/重标定外参/
+output/undist_intrinsics_correct/*
+!output/undist_intrinsics_correct/*.json
+output/重标定外参/*
+!output/重标定外参/*.json
 
 # 日志文件
 *.log
