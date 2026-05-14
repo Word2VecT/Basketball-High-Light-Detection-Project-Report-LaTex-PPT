@@ -1,0 +1,52 @@
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 分发/打包
+dist/
+build/
+*.egg-info/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# 模型文件（通常很大）
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# 视频和图片输出（通常很大）
+output/
+*.mp4
+*.avi
+*.gif
+*.png
+*.jpg
+*.jpeg
+
+# 日志文件
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
