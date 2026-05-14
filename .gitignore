@@ -30,6 +30,8 @@ build/
 *.pth
 *.onnx
 *.bin
+model/
+models/
 
 # 视频和图片输出（通常很大）
 *.mp4
@@ -47,6 +49,12 @@ output/undist_intrinsics_correct/*
 !output/undist_intrinsics_correct/*.json
 output/重标定外参/*
 !output/重标定外参/*.json
+
+# K目录（标定相关临时文件）
+K/
+
+# 不需要的脚本
+visualize_smooth.py
 
 # 日志文件
 *.log
