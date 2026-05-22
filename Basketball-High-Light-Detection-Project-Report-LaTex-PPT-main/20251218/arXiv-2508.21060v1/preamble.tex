@@ -1,0 +1,88 @@
+\newcommand{\red}[1]{{\color{red}#1}}
+\newcommand{\TODO}[1]{\textbf{\color{red}[TODO: #1]}}
+
+
+
+\newcommand{\todo}[1]{\textcolor{red}{({\it todo: {#1}})}}
+\newcommand{\skeleton}[1]{\textcolor{gray}{[\textit{#1}]}\vspace{1cm}} 
+\newcommand{\question}[1]{\textcolor{red}{Q: \textit{#1}}}
+\newcommand{\frano}[1]{{\leavevmode\color{cyan}{FN: #1}}}
+
+\usepackage{multirow}
+\usepackage[nolist,nohyperlinks]{acronym}
+\usepackage{boldline}
+\usepackage{bm}
+\usepackage{pifont}
+\newcommand{\gr}[1]{{\textcolor{gray}{#1}}}
+\newlength\savewidth\newcommand\shline{\noalign{\global\savewidth\arrayrulewidth
+		\global\arrayrulewidth 1pt}\hline\noalign{\global\arrayrulewidth\savewidth}}
+\newcommand{\tablestyle}[2]{\setlength{\tabcolsep}{#1}\renewcommand{\arraystretch}{#2}\centering\small}
+\usepackage{makecell}
+
+\usepackage{bbding}
+\usepackage{color}
+\usepackage{pifont}
+\usepackage{xcolor}
+\usepackage{colortbl}
+
+\usepackage{enumitem}
+\setlist{nosep} %
+
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[skip=0.5ex]{subcaption}
+
+
+\newcommand{\parsection}[1]{\textbf{#1} }
+
+\usepackage{xspace}
+
+\newenvironment{fulljustify}
+  {\par\setlength{\parfillskip}{0pt}} %
+  {\par} %
+
+\usepackage{arydshln}
+\newcommand{\dashrule}[1][black]{%
+  \color{#1}\rule[\dimexpr.5ex-.2pt]{4pt}{.4pt}\xleaders\hbox{\rule{4pt}{0pt}\rule[\dimexpr.5ex-.2pt]{4pt}{.4pt}}\hfill\kern0pt%
+}
+\newcommand{\rulecolor}[1]{%
+  \def\CT@arc@{\color{#1}}%
+}
+
+\usepackage{capt-of}
+\usepackage{duckuments}
+
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage{placeins}
+
+\usepackage{amsmath}
+\DeclareMathOperator*{\argmin}{\arg\!\min}
+\usepackage{dsfont}
+\newcommand{\setG}{\mathcal{G}}
+\newcommand{\dx}[1]{\ensuremath{\delta_{#1}}\xspace}
+\newcommand{\davg}{\ensuremath{\delta_\text{avg}}\xspace}
+\newcommand{\davgocc}{\ensuremath{\delta_\text{avg}^\text{occ}}\xspace}
+\newcommand{\davgvis}{\ensuremath{\delta_\text{avg}^\text{vis}}\xspace}
+\newcommand{\ctimes}{\ensuremath{\!\times \!}}
+\newcommand{\ua}{$\uparrow$}
+\newcommand{\da}{$\downarrow$}
+\newcommand{\B}[1]{\textbf{#1}}
+\newcommand{\U}[1]{\underline{#1}}
+
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{4}{\z@}{0.7ex plus 0.2ex minus 0.1ex}{-1em}{\normalfont\normalsize\bfseries}}
+\makeatother
+
+\newenvironment{tightalign}
+  {\setlength{\abovedisplayskip}{3pt}%
+   \setlength{\belowdisplayskip}{3pt}%
+   \align}
+  {\endalign}
+
+\usepackage{textcomp}
+\newcommand{\normaltilde}{\raisebox{0.5ex}{\texttildelow}}
+
+

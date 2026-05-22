@@ -1,0 +1,77 @@
+\documentclass[border=10pt]{standalone}
+\usepackage[UTF8]{ctex}
+\usepackage{pgfplots}
+\usepackage{amsmath}
+\pgfplotsset{compat=1.18}
+
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+    ybar stacked,
+    bar width=1.1cm,
+    width=17cm,
+    height=10cm,
+    ylabel={耗时（秒）},
+    xtick={1,2,3,4,5,6},
+    xticklabels={
+        {原单线程\\+统一ReID},
+        {多线程追踪\\+统一ReID},
+        {代码简化\\追踪+ReID},
+        {+YOLOv26n\\替换YOLOv26x},
+        {+ReID批量\\bs\,=\,20},
+        {+跳帧\\（每5帧）}
+    },
+    x tick label style={align=center, font=\footnotesize},
+    ymin=0, ymax=700,
+    ymajorgrids=true,
+    grid style={dashed, gray!30},
+    title style={font=\Large\bfseries, yshift=3pt},
+    title={200帧视频处理Pipeline耗时优化},
+    legend style={
+        at={(0.98,0.88)},
+        anchor=north east,
+        font=\small,
+        draw=gray!50,
+    },
+    enlarge x limits=0.1,
+    area legend,
+    clip=false,
+]
+
+\addplot[fill=blue!55, draw=blue!70!black] coordinates {
+    (1, 150.2) (2, 112.7) (3, 0) (4, 0) (5, 0) (6, 0)
+};
+\addplot[fill=orange!65, draw=orange!70!black] coordinates {
+    (1, 408.1) (2, 463.7) (3, 0) (4, 0) (5, 0) (6, 0)
+};
+\addplot[fill=teal!55, draw=teal!65!black] coordinates {
+    (1, 0) (2, 0) (3, 124) (4, 95) (5, 45) (6, 35)
+};
+
+\legend{追踪, ReID, 追踪+ReID}
+
+% 总耗时标注
+\node[above, font=\small\bfseries] at (axis cs:1, 558.3) {558s};
+\node[above, font=\small\bfseries] at (axis cs:2, 576.4) {576s};
+\node[above, font=\small\bfseries] at (axis cs:3, 124)   {124s};
+\node[above, font=\small\bfseries] at (axis cs:4, 95)    {95s};
+\node[above, font=\small\bfseries] at (axis cs:5, 45)    {45s};
+\node[above, font=\small\bfseries] at (axis cs:6, 35)    {35s};
+
+% 柱1分项标注
+\node[font=\scriptsize\bfseries, text=white] at (axis cs:1, 75)  {2分30秒};
+\node[font=\scriptsize\bfseries, text=white] at (axis cs:1, 354) {6分48秒};
+
+% 柱2分项标注
+\node[font=\scriptsize\bfseries, text=white] at (axis cs:2, 56)  {1分53秒};
+\node[font=\scriptsize\bfseries, text=white] at (axis cs:2, 345) {7分44秒};
+
+% 加速倍数箭头
+\draw[-stealth, line width=1.5pt, red!70!black]
+    (axis cs:1, 640) -- (axis cs:6, 640)
+    node[midway, above, font=\normalsize\bfseries, red!70!black]
+    {加速 $\boldsymbol{16\times}$};
+
+\end{axis}
+\end{tikzpicture}
+\end{document}

@@ -1,0 +1,90 @@
+\documentclass{ctexbeamer}
+
+% 使用 <thubeamer> 主题
+% 模板选项如下
+% (a.1) smoothbars: 页面顶端单行显示目录，默认选项
+\usetheme[sectiontoc]{thubeamer}
+
+\usepackage{media9}
+\usepackage{attachfile2}
+\usepackage{listings}
+\usepackage{multirow}
+\usepackage{colortbl}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage{animate}
+\lstnewenvironment{textcode}{
+  \lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    frame=single,
+    numbersep=2pt,
+    xleftmargin=0.5em,
+    framesep=1mm
+  }
+}{}
+
+
+% (a.2) sidebar: 页面左侧分栏显示目录
+% \usetheme[sidebar]{thubeamer}
+
+% (b) sectiontoc: 在每节（section）前显示目录，并高亮显示当前节，默认不显示
+
+% (c) subsectiontoc: 在每小节（subsection）前显示目录，并高亮显示当前节和当前小节，默认不显示
+
+% (d) en: 仅使用英文来制作 beamer，应用此选项后，汉字将全部无法编译
+
+% 图片存放路径
+
+\graphicspath{{figures/}}
+
+\include{macros}
+
+% 封面信息，方括号内容是显示在左侧边栏的内容（当选择 sidebar 主题时有效）
+\title[篮球高光检测]{篮球高光检测项目\\[2mm] 汇报}
+\author[唐梓楠]{牛衍昌\\鲁继元\\唐梓楠\\[5mm] 导师：黄必清教授}
+\institute[清华大学]{\small 清华大学}
+\date{\small \vskip -10pt \today}
+
+% 开始写文章
+\begin{document}
+
+% 标题页
+\begin{frame}
+  \maketitle
+\end{frame}
+
+% 目录页
+
+\begin{frame}{实现长时间追踪（>1min）}
+  优化方法：采用滑动窗口，先把视频切分成多个窗口，每个窗口内进行追踪，最后再利用重叠的窗口，进行窗口间的匹配。
+
+  最优窗口大小还在调试中。
+
+  \textattachfile{demo.mp4}{demo.mp4}
+\end{frame}
+
+\begin{frame}{SigLip2 的替换}
+  仅用 SigLip2 / Qwen3-VL-Embedding-2B 的效果不太行，ViT 在细腻度区分上具有局限性。
+
+  \textattachfile{demo2.mp4}{demo2.mp4}
+\end{frame}
+
+\begin{frame}{技术栈更新}
+  \begin{itemize}
+    \item 实现了 Yolo12x 到 Yolo26 的替换
+    \item 改为用 uv 进行 Python 项目管理，review 了代码，可以提交到鹰眼的代码仓库
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{后续工作}
+  \begin{itemize}
+    \item 优化窗口大小等超参数
+    \item 将 ViT 方法与人脸 ReID 方法结合，例如人脸遮挡时，可以利用衣服的相似度进行 ReID，人脸存在时，可以利用人脸的相似度进行 ReID
+    \item 优化查询逻辑，例如先用查询图查询起始片段，再利用起始片段的查询结果优化后续片段的查询
+  \end{itemize}
+\end{frame}
+
+% 结束文档撰写
+\end{document}

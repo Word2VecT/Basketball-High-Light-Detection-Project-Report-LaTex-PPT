@@ -1,0 +1,144 @@
+\documentclass[border=10pt]{standalone}
+\usepackage[UTF8]{ctex}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc, shadows.blur}
+
+\definecolor{phase1}{HTML}{4A90D9}
+\definecolor{phase2}{HTML}{27AE60}
+\definecolor{phase3}{HTML}{E67E22}
+\definecolor{phase4}{HTML}{8E44AD}
+\definecolor{phase5}{HTML}{C0392B}
+\definecolor{phase6}{HTML}{2C3E50}
+\definecolor{loopbg}{HTML}{EBF5FB}
+\definecolor{graybg}{HTML}{F8F9FA}
+
+\begin{document}
+\begin{tikzpicture}[
+    node distance=0.9cm and 1.2cm,
+    >={Stealth[length=6pt, width=5pt]},
+    mainbox/.style={
+        rectangle, rounded corners=6pt, minimum width=5.8cm, minimum height=1.1cm,
+        text=white, font=\sffamily\bfseries, align=center,
+        blur shadow={shadow blur steps=5, shadow xshift=0.8pt, shadow yshift=-0.8pt}
+    },
+    subtext/.style={
+        font=\sffamily\small, text=black!70, align=center
+    },
+    loopbox/.style={
+        rectangle, rounded corners=10pt, draw=phase2!60, line width=1.2pt,
+        dashed, inner sep=14pt
+    },
+    arrowline/.style={
+        -{Stealth[length=7pt, width=5pt]}, line width=1.2pt, color=black!60
+    },
+    looplabel/.style={
+        font=\sffamily\bfseries\small, text=phase2!80!black, fill=white,
+        inner sep=3pt, rounded corners=3pt
+    },
+    phaselabel/.style={
+        font=\sffamily\scriptsize\bfseries, text=white, rounded corners=2pt,
+        inner ysep=2pt, inner xsep=4pt, minimum width=1.6cm
+    },
+    techbox/.style={
+        font=\sffamily\scriptsize, text=black!60, align=left
+    },
+]
+
+% ============ 节点 ============
+
+% Step 1: 视频分段
+\node[mainbox, fill=phase1] (seg) {视频分段};
+\node[subtext, below=0.1cm of seg] (seg_sub) {长视频 $\rightarrow$ 重叠片段（200帧/段，重叠100帧）};
+
+% Step 2: 轨迹生成 (inside loop)
+\node[mainbox, fill=phase2, below=1.1cm of seg] (gen) {轨迹生成};
+\node[subtext, below=0.1cm of gen] (gen_sub) {YOLO 检测 + DeepSort 跟踪 + 单应性变换};
+
+% Step 3: 轨迹平滑
+\node[mainbox, fill=phase2!85, below=0.9cm of gen_sub] (smooth1) {轨迹平滑};
+\node[subtext, below=0.1cm of smooth1] (smooth1_sub) {去跳变 $\cdot$ 移动平均 $\cdot$ 高斯滤波};
+
+% Step 4: 多视角融合
+\node[mainbox, fill=phase2!70, below=0.9cm of smooth1_sub] (match) {多视角轨迹融合};
+\node[subtext, below=0.1cm of match] (match_sub) {串行匹配：基于空间距离阈值逐视角融合};
+
+% Step 5: 滑动窗口合并
+\node[mainbox, fill=phase3, below=2.0cm of match_sub] (combine) {滑动窗口时序合并};
+\node[subtext, below=0.1cm of combine] (combine_sub) {利用重叠帧区域匹配，跨片段拼接完整轨迹};
+
+% Step 6: 球员重识别
+\node[mainbox, fill=phase4, below=1.1cm of combine_sub] (reid) {球员重识别 (ReID)};
+\node[subtext, below=0.1cm of reid] (reid_sub) {InsightFace / SigLIP / Qwen3-VL \quad 参考图库比对};
+
+% Step 7: 轨迹精修
+\node[mainbox, fill=phase5, below=1.1cm of reid_sub] (refine) {轨迹精修};
+\node[subtext, below=0.1cm of refine] (refine_sub) {按球员ID分段 $\rightarrow$ 断裂连接 $\rightarrow$ 间隙插值};
+
+% Step 8: 最终平滑
+\node[mainbox, fill=phase6!80, below=1.1cm of refine_sub] (smooth2) {最终平滑};
+\node[subtext, below=0.1cm of smooth2] (smooth2_sub) {自适应平滑，消除拼接不连续};
+
+% Step 9: 可视化输出
+\node[mainbox, fill=phase6, below=1.1cm of smooth2_sub] (vis) {可视化视频生成};
+\node[subtext, below=0.1cm of vis] (vis_sub) {原始画面 + 俯视轨迹拼接，球员颜色标注};
+
+% ============ 连线 ============
+\draw[arrowline] (seg) -- (gen);
+\draw[arrowline] (gen) -- (smooth1);
+\draw[arrowline] (smooth1) -- (match);
+\draw[arrowline] (match) -- (combine);
+\draw[arrowline] (combine) -- (reid);
+\draw[arrowline] (reid) -- (refine);
+\draw[arrowline] (refine) -- (smooth2);
+\draw[arrowline] (smooth2) -- (vis);
+
+% ============ 循环框 ============
+\begin{scope}[on background layer]
+    \node[loopbox, fill=loopbg,
+        fit=(gen)(gen_sub)(smooth1)(smooth1_sub)(match)(match_sub),
+        inner sep=16pt] (loopfit) {};
+\end{scope}
+\node[looplabel, anchor=north east] at (loopfit.north east) {逐片段循环处理};
+
+% ============ 右侧技术标注 ============
+\node[techbox, right=1.4cm of gen.east, anchor=west] (t1) {
+    \textbullet~YOLO (ultralytics)\\
+    \textbullet~DeepSort\\
+    \textbullet~Homography 矩阵
+};
+\draw[densely dotted, black!30, line width=0.8pt] (gen.east) -- (t1.west);
+
+\node[techbox, right=1.4cm of reid.east, anchor=west] (t2) {
+    \textbullet~InsightFace 人脸\\
+    \textbullet~SigLIP 图像特征\\
+    \textbullet~Qwen3-VL 多模态
+};
+\draw[densely dotted, black!30, line width=0.8pt] (reid.east) -- (t2.west);
+
+\node[techbox, right=1.4cm of refine.east, anchor=west] (t3) {
+    \textbullet~轨迹分割 (traj\_divide)\\
+    \textbullet~重叠取高置信度\\
+    \textbullet~间隙线性插值
+};
+\draw[densely dotted, black!30, line width=0.8pt] (refine.east) -- (t3.west);
+
+% ============ 左侧阶段标签 ============
+\node[phaselabel, fill=phase1, left=1.6cm of seg.west, anchor=east] {阶段 1};
+\node[phaselabel, fill=phase2, left=1.6cm of smooth1.west, anchor=east] {阶段 2};
+\node[phaselabel, fill=phase3, left=1.6cm of combine.west, anchor=east] {阶段 3};
+\node[phaselabel, fill=phase4, left=1.6cm of reid.west, anchor=east] {阶段 4};
+\node[phaselabel, fill=phase5, left=1.6cm of refine.west, anchor=east] {阶段 5};
+\node[phaselabel, fill=phase6, left=1.6cm of smooth2.west, anchor=east] {阶段 6};
+
+% ============ 多视频输入标注 ============
+\node[font=\sffamily\small, text=phase1!80!black, above=0.4cm of seg] (input) {%
+    多机位视频输入（$\times 4$ 视角）};
+\draw[arrowline, phase1!60] (input) -- (seg);
+
+% ============ 最终输出标注 ============
+\node[font=\sffamily\small, text=phase6!80!black, below=0.4cm of vis_sub] (output) {%
+    拼接视频 + 球员轨迹 JSON};
+\draw[arrowline, phase6!60] (vis) -- (output);
+
+\end{tikzpicture}
+\end{document}
