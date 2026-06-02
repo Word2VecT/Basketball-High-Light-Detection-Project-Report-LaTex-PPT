@@ -1,214 +1,303 @@
-# Basketball Highlight Detection
+# 篮球球员骨架识别与轨迹生成系统
 
-此项目包含篮球轨迹追踪的流水线代码。
+## 概述
+
+本系统基于3D骨架ReID结果进行球员轨迹生成，支持多视角视频输入、跨视角ReID匹配、3D三角化重建、轨迹生成与平滑、3D骨架可视化等完整流程。
+
+2D骨架数据也在生成的 poses_3d.json 中，可以用来做动作识别。
+
+## 完整工作流程
+
+```
+多视角原始视频
+    │
+    ▼
+[1] yolopose_perview_reid_3d.py     ← YOLO-Pose检测 + ReID + 3D三角化
+    │                                    输出: poses_3d.json (3D骨架 + 2D检测)
+    ├────────────────────┬──────────────┘
+    ▼                    ▼
+[2] track/traj_gen_3d.py  [3] generate_reid_3d_animation.py
+轨迹生成 + RGB/Topview视频   3D骨架可视化 (MP4 + GIF)
+    │
+    ▼
+[4] track/traj_smooth_3d.py       ← 轨迹平滑处理
+    │
+    ├──────────────────────────┐
+    ▼                          ▼
+(可选) [5] concat_three_videos.py ← 三视频拼接 (RGB + Topview + 3D骨架)
+```
+
+## 配置系统
+
+所有路径和参数均通过 YAML 配置文件管理，不再硬编码在代码中。
+
+### 配置文件位置
+
+- **默认配置**: `config/default.yaml`
+- **自定义配置**: `config/config.yaml`，修改其中需要变更的字段即可
+
+### 配置文件结构
+
+```yaml
+# 项目根路径（其他路径可基于此展开）
+project_root: /data/tt/pose/pose
+data_root: /data/ljy23/data/videodata/11.19
+
+# 模型路径
+model:
+  pose_model: ${project_root}/model/yolo26x-pose.pt
+  insightface_name: buffalo_l
+
+# 相机参数
+camera:
+  intrinsics_path: ${project_root}/assets/intrinsics_parameters/undistorted_intrinsics_correct.json
+  extrinsics_path: ${project_root}/assets/extrinsic_parameters/extrinsics_new_calibration.json
+  view_to_camera:
+    view1: A1
+    view2: A2
+    view3: B3
+    view4: B4
+
+# 资源文件
+assets:
+  court_background: ${project_root}/assets/court__bg.png
+  homography_dir: ${project_root}/assets/homo
+
+# 输入视频（按视角配置）
+videos:
+  view1: ${data_root}/A1/A1-1_camera1_undistorted.mp4
+  view2: ${data_root}/A2/A2-1_camera1_undistorted.mp4
+  view3: ${data_root}/B3/B3-1_camera1_undistorted.mp4
+  view4: ${data_root}/B4/B4-1_camera1_undistorted.mp4
+
+# 输出目录
+output:
+  reid_3d_dir: ${project_root}/output/yolopose_perview_reid_3d
+  trajectory_dir: ${project_root}/output/trajectory_from_3d_reid
+  pipeline_dir: ${project_root}/output/trajectory_3d_pipeline
+  skeleton_dir: ${project_root}/output/skeletons_3d_reid_v2
+  combined_dir: ${project_root}/output/combined_video
+
+# ReID 参数
+reid:
+  num_players: 6
+  smooth_window: 5
+  max_missing_frames: 10
+  velocity_window: 5
+  face_det_size: [320, 320]
+
+# 轨迹生成参数
+trajectory:
+  start_frame: 0
+  process_seconds: 30
+  fps: 30
+  target_view: view1
+  court_total_x: 15.0
+  court_total_y: 28.0
+  scale_ratio: 50
+  generate_video: true
+  topview_width: 800
+  topview_height: 1400
+
+# 轨迹平滑参数
+smoothing:
+  jump_distance_threshold: 3.0
+  speed_ratio_threshold: 8.0
+  lookback_frames: 15
+  moving_average_window: 20
+  gaussian_sigma: 1.0
+
+# 3D骨架可视化参数
+visualization:
+  skeleton_3d:
+    elev: 15
+    azim: 55
+    x_extent: 4.0
+    y_extent: 5.0
+    z_extent: 1.5
+    animation_fps: 20
+
+# 球员颜色（RGB）和骨架连接关系
+player_colors: ...
+skeleton_connections: ...
+```
+
+## 环境配置
+
+```bash
+# 安装uv（如果尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 创建虚拟环境
+cd code
+uv venv .venv --python 3.10
+
+# 激活虚拟环境并安装依赖
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# 验证安装
+python -c "import torch, ultralytics, insightface; print('所有依赖安装成功')"
+```
+
+### 使用自定义配置
+
+所有脚本均支持 `--config` 命令行参数。自定义配置文件放在 `config/` 目录下：
+
+```bash
+# 使用默认配置
+python yolopose_perview_reid_3d.py
+
+# 使用自定义配置（config.yaml 与 default.yaml 同目录）
+python yolopose_perview_reid_3d.py --config ../config/config.yaml
+```
+
+
+
+## 快速开始
+使用前请先在default.yaml和config.yaml中将数据路径、项目路径和模型权重路径设置好
+
+### 方式一：使用流水线（推荐）
+
+```bash
+cd src
+python -m track.pipeline
+```
+
+### 方式二：逐步执行（可以快速得到中间产物）
+
+#### 步骤1：3D骨架识别与重建
+
+从多视角视频中检测球员，进行跨视角ReID匹配，重建3D骨架坐标。
+
+```bash
+python yolopose_perview_reid_3d.py
+# 或指定配置
+python yolopose_perview_reid_3d.py --config ../config/config.yaml
+```
+
+**输出文件：**
+- `output/yolopose_perview_reid_3d/poses_3d.json` — 包含3D骨架和2D检测数据
+
+#### 步骤2：轨迹生成 + 视频输出
+
+基于3D骨架的ReID结果，提取球员地面位置并生成轨迹。
+
+```bash
+python -m track.traj_gen_3d
+```
+
+**输出文件：**
+- `output/trajectory_3d_pipeline/<video_index>/traj_gen/player_trajectory.json` — 轨迹数据
+- `output/trajectory_3d_pipeline/<video_index>/traj_gen/output_video_final.mp4` — RGB视频（带2D骨架标注）
+- `output/trajectory_3d_pipeline/<video_index>/traj_gen/topview_smooth.mp4` — Topview轨迹视频
+
+#### 步骤3：轨迹平滑（可选）
+
+对生成的轨迹进行跳变检测和滤波平滑。
+
+```bash
+python -m track.traj_smooth_3d
+# 或指定输入文件
+python -m track.traj_smooth_3d --input path/to/player_trajectory.json
+```
+
+**输出文件：**
+- `.../traj_gen/smooth_traj.json` — 平滑后的轨迹数据
+- `.../traj_gen/smooth_vis.png` — 轨迹可视化图
+
+#### 步骤4：3D骨架可视化
+
+生成单视角3D骨架动画视频。
+
+```bash
+python generate_reid_3d_animation.py
+```
+
+**输出文件：**
+- `output/skeletons_3d_reid_v2/skeletons_3d_view_elev15_azim55.mp4` — 3D骨架MP4视频
+- `output/skeletons_3d_reid_v2/skeletons_3d_view_elev15_azim55.gif` — 3D骨架GIF动图
+
+#### 步骤5：三视频拼接（可选）
+
+将RGB、Topview、3D骨架三个视频横向拼接为一个视频。
+
+```bash
+python concat_three_videos.py
+```
+
+**输出文件：**
+- `output/combined_video/rgb_topview_3d_skeleton.mp4` — 拼接后MP4
+- `output/combined_video/rgb_topview_3d_skeleton.avi` — 拼接后AVI
+- `output/combined_video/rgb_topview_3d_skeleton.gif` — 拼接后GIF
+
+---
+
+
+### 骨架关键点定义（COCO格式，17点）
+
+| ID | 部位 | ID | 部位 |
+|----|------|----|------|
+| 0 | 鼻子 | 9 | 左手腕 |
+| 1 | 左眼 | 10 | 右手腕 |
+| 2 | 右眼 | 11 | 左髋 |
+| 3 | 左耳 | 12 | 右髋 |
+| 4 | 右耳 | 13 | 左膝 |
+| 5 | 左肩 | 14 | 右膝 |
+| 6 | 右肩 | 15 | 左踝 |
+| 7 | 左肘 | 16 | 右踝 |
+| 8 | 右肘 | | |
+
+---
 
 ## 项目结构
 
-- `src/track/`: 源代码目录
-  - `pipeline.py`: 主处理流水线
-  - `traj_*.py`: 轨迹生成、平滑、匹配、ReID等模块
-  - `siglip.py`: SigLIP 模型封装
-- `assets/`: 资源文件
-  - `court__bg.png`: 球场背景图
-  - `homo/`: 单应性矩阵文件
-  - `ref/`: 参考图片
-
-## 使用方法
-
-此项目使用 `uv` 进行依赖管理。
-
-1. 安装依赖：
-   ```bash
-   uv sync
-   source .venv/bin/activate
-   ```
-2. 运行流水线：
-   在项目根目录下运行：
-   ```bash
-   HF_ENDPOINT="https://hf-mirror.com" python -m src.track.pipeline
-   ```
-
-## Pipeline 处理流程
-
-### 整体架构
-
-采用**异步生产者-消费者模式**，实现流水线并行处理：
-
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          pipeline.py (主流程)                            │
-└─────────────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-      ┌───────▼────────┐              ┌──────▼────────┐
-      │  traj_gen      │              │  match/reid    │
-      │  生产者        │              │  消费者        │
-      │  (持续处理)    │              │  (等待队列)    │
-      └───────┬────────┘              └──────┬────────┘
-              │                               │
-              └───────► 异步队列 ◄────────────┘
-                     (maxsize=2)
-```
-
----
-
-### 详细处理步骤
-
-#### 阶段 1：初始化
-1. 设置 GPU 配置 (`CUDA_VISIBLE_DEVICES`)
-2. 初始化日志系统
-3. 计算视频处理的帧范围
-4. 创建 `ModelPool` (4个 InsightFace 模型)
-5. 创建 `VideoProcessorPool` (4个视频处理线程)
-6. 创建异步队列 (`maxsize=2`)
-
----
-
-#### 阶段 2：异步处理（生产者 + 消费者并行）
-
-**traj_gen 生产者**：
-- 持续处理每个片段的前序步骤
-- 生产完一个片段后立即放入队列
-- 自动跳过已完整处理的片段
-
-**单个片段的 traj_gen 步骤**：
-1. **轨迹生成** (`traj_gen.py`)
-   - YOLOv12 人体检测
-   - ByteTrack 多目标追踪
-   - InsightFace 人脸识别 + ReID
-   - 单应性矩阵映射到地面坐标
-   - 输出：`player_trajectory.json`
-
-2. **单个轨迹平滑** (`traj_smooth.py`)
-   - 跳变检测与移除
-   - 移动平均 + 高斯平滑
-   - 输出：`traj_smooth/smoothed_trajectory.json`
-
----
-
-**match/reid 消费者**：
-- 从队列中获取已完成 traj_gen 的片段
-- 处理后续步骤
-- 处理完一个片段后继续处理下一个
-
-**单个片段的 match/reid 步骤**：
-3. **轨迹匹配** (`traj_match.py`)
-   - 跨相机轨迹匹配
-   - 距离阈值：0.7 米
-   - 输出：`traj_match/final_traj_match/merged_trajectories.json`
-
-4. **轨迹 ReID** (`traj_reid.py`)
-   - 基于人脸识别的轨迹 ID 修正
-   - 输出：`traj_reid/` 目录
-
-5. **融合轨迹平滑** (`traj_smooth.py`)
-   - 使用 `MergedAdaptiveJumpRemover`
-   - 跳变检测 + 插值修复
-   - 输出：`traj_smooth/` 目录
-
-6. **可视化** (`traj_vis.py`)
-   - 轨迹视频生成
-   - 左侧原始视频 + 右侧俯视图
-   - 输出：`traj_vis/` 目录
-
----
-
-#### 阶段 3：片段间融合（所有片段处理完成后）
-
-**方式 1：按 Player ID 融合** (`COMBINE_METHOD = "by_id"`) - 推荐
-- 相同 `player_id` 的轨迹直接融合
-- 重叠帧按 `similarity` 加权平均（无相似度时按 `confidence`）
-- 滑动窗口方式累积融合
-
-**方式 2：滑动窗口融合** (`COMBINE_METHOD = "sliding_window"`)
-- 基于重叠帧和距离匹配
-- 最小重叠帧数：15 帧
-- 最小覆盖比例：0.3
-- 距离阈值：0.8 米
-
----
-
-#### 阶段 4：融合后处理
-
-7. **片段间融合 - 轨迹平滑** (`traj_smooth.py`)
-   - 使用 `MergedAdaptiveJumpRemover`
-   - 参数更宽松（更大的窗口和 sigma）
-   - 输出：`final_combined_trajectories/traj_smooth/`
-
-8. **最终视频生成** (`traj_vis.py`)
-   - 基于完整融合轨迹生成视频
-   - 补全缺失帧（最大 30 帧）
-   - 输出：`final_combined_trajectories/traj_vis/`
-
----
-
-### 输出目录结构
-
-```
-OUTPUT_ROOT/
-├── segment_000_frames_3500_3800/
-│   ├── 1/
-│   │   └── traj_gen/
-│   │       ├── player_trajectory.json
-│   │       ├── reid_results.json
-│   │       └── (可选) output_video_final_with_topview.mp4
-│   │   └── traj_smooth/
-│   │       └── smoothed_trajectory.json
-│   ├── 2/ (同1)
-│   ├── 3/ (同1)
-│   ├── 4/ (同1)
-│   ├── traj_match/
-│   │   └── final_traj_match/
-│   │       └── merged_trajectories.json
-│   ├── traj_reid/
-│   ├── traj_smooth/
-│   └── traj_vis/
+pose/pose/
+├── config/                                  # 配置管理模块
+│   ├── __init__.py                         # 模块导出
+│   ├── loader.py                           # 配置加载器（YAML解析、变量插值、深度合并）
+│   └── default.yaml                        # 默认配置文件（包含所有可配置参数）
+│   └── config.yaml                         # 自定义配置文件，继承默认配置文件
 │
-├── segment_001_frames_3700_4000/ (同0)
-│   └── ...
+├── assets/                                  # 资源文件
+│   ├── court__bg.png                       # 球场背景图
+│   ├── homo/                               # 单应性矩阵
+│   │   └── homography_matrix1~4.npy
+│   ├── intrinsics_parameters/              # 相机内参
+│   │   └── undistorted_intrinsics_correct.json
+│   └── extrinsic_parameters/              # 相机外参
+│       └── extrinsics_new_calibration.json
 │
-└── final_combined_trajectories/
-    ├── sliding_window_final/ 或 final_combined_by_id/
-    │   └── merged_trajectories.json
-    ├── traj_smooth/
-    │   └── smoothed_trajectories.json
-    └── traj_vis/
-        └── (最终视频)
+├── src/
+│   ├── track/                              # 轨迹处理模块
+│   │   ├── __init__.py                     # 模块导出
+│   │   ├── pipeline.py                     # 流水线入口
+│   │   ├── traj_gen_3d.py                  # 轨迹生成器
+│   │   └── traj_smooth_3d.py               # 轨迹平滑器
+│   │
+│   ├── yolopose_perview_reid_3d.py         # ① 3D骨架识别与重建
+│   ├── trajectory_from_3d_reid.py          # 独立轨迹生成脚本
+│   ├── generate_reid_3d_animation.py       # ④ 3D骨架可视化
+│   ├── generate_reid_3d_multiview.py       # 多视角3D动画（可选）
+│   └── concat_three_videos.py              # ⑤ 三视频拼接
+│
+├── model/
+│   └── yolo26x-pose.pt                     # YOLO-Pose模型
+│
+├── requirements.txt                         # Python依赖
+└── output/
+    ├── yolopose_perview_reid_3d/            # ① 输出
+    │   └── poses_3d.json                   # 3D+2D骨架数据
+    ├── trajectory_3d_pipeline/             # ②③ 输出
+    │   └── <video_idx>/traj_gen/
+    │       ├── player_trajectory.json      # 轨迹数据
+    │       ├── output_video_final.mp4      # RGB视频
+    │       └── topview_smooth.mp4          # Topview视频
+    ├── skeletons_3d_reid_v2/               # ④ 输出
+    │   └── skeletons_3d_view_elev15_azim55.mp4
+    └── combined_video/                     # ⑤ 输出
+        └── rgb_topview_3d_skeleton.mp4
 ```
 
 ---
-
-## 配置参数
-
-详细的参数配置说明请参考：[参数配置指南.md](src/track/参数配置指南.md)
-
-### 核心配置（pipeline.py）
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `OUTPUT_ROOT` | `"./test"` | 输出根目录 |
-| `FRAME_INTERVAL` | `300` | 每个片段处理的帧数 |
-| `OVERLAP_FRAMES` | `100` | 相邻片段重叠帧数 |
-| `MAX_PROCESS_SEGMENTS` | `3` | 最大处理片段数 |
-| `START_VIDEO_FRAME` | `3500` | 视频处理起始帧 |
-| `COMBINE_METHOD` | `"by_id"` | 融合方式：`"by_id"` 或 `"sliding_window"` |
-
-<br />
-
-## TODO
-
-- [ ] 精准测算一个流程的时间 现在实验室的服务器比较卡 测出的时间有问题（现在300f*3为6min半 我怀疑异步本身没有合适地工作） （理应200f的轨迹生成是20多秒，绝对超过了其他的环节时间，所以处理一段 异步总共20多秒）可以参考demo 文件夹下的face_recognition_demo.py 里面正常时 200帧是17-23s不等，现在服务器跑出来都1min了
-- [ ] 不依靠YOLO的追踪 只用检测+reid （检测到某处有某个id，就把这个点画上去，最后把某个id的轨迹全部整理）
-- [ ] 参数是否需要调优 轨迹融合 片段融合还是存在缺陷 有时候会少几个轨迹
-- [ ] 3维重建（optional）
-- [ ] 能否减小person roi的大小 把上半身（或更小）从检测框中裁出来，交给face_analyser 是否可以提高速度
-
-<br />
-
-## 注意事项
-
-- 代码中的文件路径已更新为相对于项目根目录的 `assets/` 路径。请确保在项目根目录下运行脚本。
-- 如需修改配置，请参考 `pipeline.py` 中的配置部分。
-- 参数的配置说明位于
-
