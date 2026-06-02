@@ -1,0 +1,117 @@
+# ============================================================
+# 篮球球员骨架识别与轨迹生成系统 - 默认配置
+# ============================================================
+
+# ---- 项目根路径（其他路径可基于此展开） ----
+project_root: /data/tt/pose/pose
+data_root: /data/ljy23/data/videodata/11.19
+
+# ---- 模型路径 ----
+model:
+  pose_model: ${project_root}/model/yolo26x-pose.pt
+  insightface_name: buffalo_l
+
+# ---- 相机参数 ----
+camera:
+  intrinsics_path: ${project_root}/assets/intrinsics_parameters/undistorted_intrinsics_correct.json
+  extrinsics_path: ${project_root}/assets/extrinsic_parameters/extrinsics_new_calibration.json
+  view_to_camera:
+    view1: A1
+    view2: A2
+    view3: B3
+    view4: B4
+
+# ---- 资源文件 ----
+assets:
+  court_background: ${project_root}/assets/court__bg.png
+  homography_dir: ${project_root}/assets/homo
+
+# ---- 输入视频（按视角配置） ----
+videos:
+  view1: ${data_root}/A1/A1-1_camera1_undistorted.mp4
+  view2: ${data_root}/A2/A2-1_camera1_undistorted.mp4
+  view3: ${data_root}/B3/B3-1_camera1_undistorted.mp4
+  view4: ${data_root}/B4/B4-1_camera1_undistorted.mp4
+
+# ---- 输出目录 ----
+output:
+  base_dir: ${project_root}/output
+  reid_3d_dir: ${project_root}/output/yolopose_perview_reid_3d
+  trajectory_dir: ${project_root}/output/trajectory_from_3d_reid
+  pipeline_dir: ${project_root}/output/trajectory_3d_pipeline
+  skeleton_dir: ${project_root}/output/skeletons_3d_reid_v2
+  combined_dir: ${project_root}/output/combined_video
+
+# ---- ReID 参数 ----
+reid:
+  num_players: 6
+  smooth_window: 5
+  max_missing_frames: 10
+  velocity_window: 5
+  face_det_size:
+    - 320
+    - 320
+
+# ---- 轨迹生成参数 ----
+trajectory:
+  start_frame: 0
+  process_seconds: 30
+  fps: 30
+  target_view: view1
+  court_total_x: 15.0
+  court_total_y: 28.0
+  scale_ratio: 50
+  generate_video: true
+  topview_width: 800
+  topview_height: 1400
+
+# ---- 轨迹平滑参数 ----
+smoothing:
+  jump_distance_threshold: 3.0
+  speed_ratio_threshold: 8.0
+  lookback_frames: 15
+  moving_average_window: 20
+  gaussian_sigma: 1.0
+
+# ---- 3D骨架可视化参数 ----
+visualization:
+  skeleton_3d:
+    elev: 15
+    azim: 55
+    x_extent: 4.0
+    y_extent: 5.0
+    z_extent: 1.5
+    animation_fps: 20
+  concat:
+    gif_fps: 10
+    gif_scale: 640
+    mp4_preset: medium
+    mp4_crf: 23
+
+# ---- 球员颜色（RGB） ----
+player_colors:
+  - [255, 80, 80]
+  - [80, 255, 80]
+  - [80, 80, 255]
+  - [255, 255, 80]
+  - [255, 80, 255]
+  - [80, 255, 255]
+
+# ---- 骨架连接关系（COCO 17关键点） ----
+skeleton_connections:
+  - [0, 1]
+  - [0, 2]
+  - [1, 3]
+  - [2, 4]
+  - [5, 6]
+  - [5, 7]
+  - [7, 9]
+  - [6, 8]
+  - [8, 10]
+  - [5, 11]
+  - [6, 12]
+  - [11, 12]
+  - [11, 13]
+  - [13, 15]
+  - [12, 14]
+  - [14, 16]
