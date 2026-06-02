@@ -155,18 +155,23 @@ python yolopose_perview_reid_3d.py --config ../config/config.yaml
 
 
 ## 快速开始
-使用前请先在default.yaml和config.yaml中将数据路径、项目路径和模型权重路径设置好
+使用前请先在 default.yaml 中将数据路径、项目路径设置好（如需自定义配置，复制为 config.yaml 并修改）。
 
-### 方式一：使用流水线（推荐）
+### 完整流程（推荐）
 
 ```bash
 cd src
+
+# 步骤1：生成 3D 骨架数据（必须先执行）
+python yolopose_perview_reid_3d.py
+
+# 步骤2：运行轨迹生成流水线
 python -m track.pipeline
 ```
 
-### 方式二：逐步执行（可以快速得到中间产物）
+### 分步执行（可查看中间结果）
 
-#### 步骤1：3D骨架识别与重建
+#### 步骤1：3D骨架识别与重建（必须先执行）
 
 从多视角视频中检测球员，进行跨视角ReID匹配，重建3D骨架坐标。
 
