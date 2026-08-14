@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 from .traj_gen_3d import PlayerTrajectoryTracker3D, batch_process_videos
 from .traj_smooth_3d import AdaptiveJumpRemover, MergedAdaptiveJumpRemover
 
-import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from config import Config, load_config
 
@@ -108,8 +107,12 @@ def main():
     
     video_paths = cfg.video_paths
     video_configs = [
-        {"INPUT_VIDEO_PATH": v, "START_FRAME": cfg.get("trajectory.start_frame", 0)}
-        for v in video_paths.values()
+        {
+            "INPUT_VIDEO_PATH": path,
+            "TARGET_VIEW": view,
+            "START_FRAME": cfg.get("trajectory.start_frame", 0),
+        }
+        for view, path in video_paths.items()
     ]
     
     results = run_trajectory_pipeline(

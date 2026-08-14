@@ -72,8 +72,11 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
+        path = os.path.abspath(path)
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+        if data.get("project_root") in (None, "", "auto"):
+            data["project_root"] = os.path.dirname(os.path.dirname(path))
         return cls(data)
 
     @classmethod

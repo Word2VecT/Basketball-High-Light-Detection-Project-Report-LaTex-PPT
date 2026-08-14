@@ -1,24 +1,25 @@
 [project]
 name = "HAR"
 version = "0.1.0"
-description = "Human Action Recognition"
+description = "Four-view RF-DETR basketball pose and trajectory pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy",
-    "opencv-python",
-    "scipy",
-    "scikit-learn",
-    "insightface",
-    "ultralytics",
-    "deep-sort-realtime",
-    "matplotlib",
-    "torch",
-    "vllm",
-    "pillow",
-    "transformers",
-    "onnxruntime",
-    "accelerate",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0,<2.0.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "PyYAML>=6.0",
+    "tqdm>=4.65.0",
+    "imageio-ffmpeg>=0.6.0",
+    "supervision>=0.28.0",
+    "mmengine>=0.6.0,<1.0.0",
+    "mmcv-lite>=2.0.0rc4,<=2.3.0",
+    "insightface>=0.7.3",
+    "onnxruntime-gpu==1.23.2",
+    "tensorrt-cu12==11.2.1.2",
 ]
 [tool.hatch.build]
 root = "." 

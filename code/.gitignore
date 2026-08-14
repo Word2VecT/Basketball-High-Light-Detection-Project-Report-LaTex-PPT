@@ -243,3 +243,31 @@ Temporary Items
 .apdisk
 
 0309_tzn_update.md
+
+# Project-generated outputs
+/output/
+/models/
+/runs/
+/wandb/
+/mlruns/
+
+# Local model and inference artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.plan
+*.trt
+
+# Runtime logs and temporary files
+nohup.out
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Local editor settings
+.vscode/
+.idea/

@@ -252,6 +252,11 @@ class PlayerTrajectoryTracker3D:
             data = json.load(f)
         self.poses_3d = data["poses_3d"]
         self.poses_2d = data.get("poses_2d", {})
+        # Prefer mask/ankle-derived ground points and fall back to hip centers
+        # when a producer does not provide ground_positions_3d.
+        self.ground_positions_3d = data.get("ground_positions_3d", {})
+        self.balls_3d = data.get("balls_3d", {})
+        self.balls_3d_predicted = data.get("balls_3d_predicted", {})
         print(f"视频{self.video_folder}：加载完成，共 {len(self.poses_3d)} 帧")
     
     def extract_trajectories(self):
@@ -269,8 +274,11 @@ class PlayerTrajectoryTracker3D:
             for track_id_str, kps_3d in self.poses_3d[frame_str].items():
                 track_id = int(track_id_str)
                 kps = np.array(kps_3d)
-                
-                if len(kps) >= 13:
+                ground = self.ground_positions_3d.get(frame_str, {}).get(track_id_str)
+                if ground is not None and len(ground) >= 2:
+                    x, y = float(ground[0]), float(ground[1])
+                    raw_trajectories[track_id].append((frame_num, x, y))
+                elif len(kps) >= 13:
                     hip = (kps[11] + kps[12]) / 2
                     x, y = hip[0], hip[1]
                     raw_trajectories[track_id].append((frame_num, x, y))
@@ -366,6 +374,11 @@ class PlayerTrajectoryTracker3D:
         
         target_view = self.config["TARGET_VIEW"]
         num_players = self.config["NUM_PLAYERS"]
+        ball_color = tuple(self._app_config.get("visualization.ball_color_bgr", [0, 165, 255]))
+        ball_tail_frames = max(1, int(round(
+            float(self._app_config.get("trajectory.ball_trail_seconds", 2.0)) * fps
+        )))
+        ball_max_gap_frames = max(0, int(self._app_config.get("trajectory.ball_max_gap_frames", 6)))
         
         for frame_num in tqdm(range(start_frame, end_frame), desc="生成视频"):
             ret, frame = cap.read()
@@ -385,7 +398,7 @@ class PlayerTrajectoryTracker3D:
                         kps_xy = np.array(view_data["keypoints_xy"])
                         kps_conf = np.array(view_data["keypoints_conf"])
                         
-                        x1, y1, x2, y2 = bbox
+                        x1, y1, x2, y2 = (int(round(value)) for value in bbox)
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                         cv2.putText(frame, f"P{track_id:02d}", (x1, y1 - 10),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
@@ -430,6 +443,30 @@ class PlayerTrajectoryTracker3D:
                         cv2.circle(frame_topview, (px, py), 8, color, -1)
                         cv2.putText(frame_topview, f"{track_id}", (px + 10, py - 10),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+            ball_history = []
+            for ball_frame in range(max(start_frame, frame_num - ball_tail_frames + 1), frame_num + 1):
+                point = self.balls_3d.get(str(ball_frame))
+                if point is not None and len(point) >= 2 and np.isfinite(point[:2]).all():
+                    ball_history.append((ball_frame, float(point[0]), float(point[1])))
+            for index, (first, second) in enumerate(zip(ball_history, ball_history[1:])):
+                if second[0] - first[0] > ball_max_gap_frames + 1:
+                    continue
+                start_pixel = ground_to_pixel(first[1], first[2], scale_ratio=50)
+                end_pixel = ground_to_pixel(second[1], second[2], scale_ratio=50)
+                if all((0 <= start_pixel[0] < topview_w, 0 <= start_pixel[1] < topview_height,
+                        0 <= end_pixel[0] < topview_w, 0 <= end_pixel[1] < topview_height)):
+                    intensity = 0.25 + 0.75 * (index + 1) / max(len(ball_history) - 1, 1)
+                    trail_color = tuple(int(channel * intensity) for channel in ball_color)
+                    cv2.line(frame_topview, start_pixel, end_pixel, trail_color, 4, cv2.LINE_AA)
+            if ball_history and frame_num - ball_history[-1][0] <= ball_max_gap_frames:
+                _, ball_x, ball_y = ball_history[-1]
+                ball_pixel = ground_to_pixel(ball_x, ball_y, scale_ratio=50)
+                if 0 <= ball_pixel[0] < topview_w and 0 <= ball_pixel[1] < topview_height:
+                    cv2.circle(frame_topview, ball_pixel, 9, (245, 245, 245), -1, cv2.LINE_AA)
+                    cv2.circle(frame_topview, ball_pixel, 7, ball_color, -1, cv2.LINE_AA)
+                    cv2.putText(frame_topview, "BALL", (ball_pixel[0] + 11, ball_pixel[1] - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.52, ball_color, 2, cv2.LINE_AA)
             
             writer_topview.write(frame_topview)
         
@@ -528,8 +565,12 @@ def main():
     
     video_paths = cfg.video_paths
     video_configs = [
-        {"INPUT_VIDEO_PATH": v, "START_FRAME": cfg.get("trajectory.start_frame", 0)}
-        for v in video_paths.values()
+        {
+            "INPUT_VIDEO_PATH": path,
+            "TARGET_VIEW": view,
+            "START_FRAME": cfg.get("trajectory.start_frame", 0),
+        }
+        for view, path in video_paths.items()
     ]
     
     video_output_paths = batch_process_videos(
